@@ -117,13 +117,17 @@ app_license = "mit"
 # -----------
 # Permissions evaluated in scripted ways
 
-# permission_query_conditions = {
-# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
-# }
-#
-# has_permission = {
-# 	"Event": "frappe.desk.doctype.event.event.has_permission",
-# }
+permission_query_conditions = {
+	"Articulo de Inventario": "inventario_cedhi.permissions.article_query_conditions",
+	"Alerta de Inventario": "inventario_cedhi.permissions.alert_query_conditions",
+	"User": "inventario_cedhi.permissions.user_query_conditions",
+}
+
+has_permission = {
+	"Articulo de Inventario": "inventario_cedhi.permissions.article_has_permission",
+	"Alerta de Inventario": "inventario_cedhi.permissions.alert_has_permission",
+	"User": "inventario_cedhi.permissions.user_has_permission",
+}
 
 # DocType Class
 # ---------------
@@ -246,4 +250,3 @@ app_license = "mit"
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

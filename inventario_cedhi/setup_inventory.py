@@ -1,0 +1,1058 @@
+import frappe
+import json
+from frappe.utils import cint
+
+
+def add_gastronomy_catalog_fields():
+	"""Add MVP catalog fields used by the gastronomy inventory import."""
+	doctype_name = "Articulo de Inventario"
+	doc = frappe.get_doc("DocType", doctype_name)
+	existing = {df.fieldname for df in doc.fields}
+	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
+
+	fields = [
+		{
+			"fieldname": "datos_catalogo_gastronomia_section",
+			"label": "Datos de Catalogo Gastronomia",
+			"fieldtype": "Section Break",
+		},
+		{"fieldname": "grupo", "label": "Grupo", "fieldtype": "Data"},
+		{"fieldname": "categoria", "label": "Categoria", "fieldtype": "Data"},
+		{"fieldname": "presentacion", "label": "Presentacion", "fieldtype": "Data"},
+		{
+			"fieldname": "proveedor_referencia",
+			"label": "Proveedor de referencia",
+			"fieldtype": "Data",
+		},
+		{"fieldname": "medida", "label": "Medida", "fieldtype": "Float"},
+		{
+			"fieldname": "porcentaje_desperdicio",
+			"label": "Porcentaje desperdicio",
+			"fieldtype": "Percent",
+		},
+		{"fieldname": "cantidad_minima", "label": "Cantidad minima", "fieldtype": "Float"},
+		{"fieldname": "precio_referencial", "label": "Precio referencial", "fieldtype": "Currency"},
+	]
+
+	added = []
+	for field in fields:
+		if field["fieldname"] in existing:
+			continue
+		row = doc.append("fields", field)
+		row.idx = next_idx
+		next_idx += 1
+		added.append(field["fieldname"])
+
+	if added:
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		frappe.clear_cache(doctype=doctype_name)
+
+	return {"added": added}
+
+
+def configure_module_specific_article_form():
+	"""Show article fields by inventory module and add General-module fields."""
+	doctype_name = "Articulo de Inventario"
+	doc = frappe.get_doc("DocType", doctype_name)
+	existing = {df.fieldname for df in doc.fields}
+	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
+
+	fields = [
+		{
+			"fieldname": "datos_mobiliario_section",
+			"label": "Datos de Mobiliario",
+			"fieldtype": "Section Break",
+		},
+		{"fieldname": "pabellon", "label": "Pabellon", "fieldtype": "Data"},
+		{"fieldname": "aula", "label": "Aula", "fieldtype": "Data"},
+	]
+
+	added = []
+	for field in fields:
+		if field["fieldname"] in existing:
+			continue
+		row = doc.append("fields", field)
+		row.idx = next_idx
+		next_idx += 1
+		added.append(field["fieldname"])
+
+	depends_on = {
+		"datos_tecnicos_section": 'eval:doc.modulo=="TI"',
+		"marca": 'eval:doc.modulo=="TI"',
+		"modelo": 'eval:doc.modulo=="TI"',
+		"datos_de_stock_section": 'eval:doc.modulo=="Gastronomia"',
+		"stock_actual": 'eval:doc.modulo=="Gastronomia"',
+		"stock_critico": 'eval:doc.modulo=="Gastronomia"',
+		"unidad_medida": 'eval:doc.modulo=="Gastronomia"',
+		"es_perecible": 'eval:doc.modulo=="Gastronomia"',
+		"fecha_vencimiento": 'eval:doc.modulo=="Gastronomia"',
+		"datos_catalogo_gastronomia_section": 'eval:doc.modulo=="Gastronomia"',
+		"grupo": 'eval:doc.modulo=="Gastronomia"',
+		"categoria": 'eval:doc.modulo=="Gastronomia"',
+		"presentacion": 'eval:doc.modulo=="Gastronomia"',
+		"proveedor_referencia": 'eval:doc.modulo=="Gastronomia"',
+		"medida": 'eval:doc.modulo=="Gastronomia"',
+		"porcentaje_desperdicio": 'eval:doc.modulo=="Gastronomia"',
+		"cantidad_minima": 'eval:doc.modulo=="Gastronomia"',
+		"precio_referencial": 'eval:doc.modulo=="Gastronomia"',
+		"datos_mobiliario_section": 'eval:doc.modulo=="General"',
+		"pabellon": 'eval:doc.modulo=="General"',
+		"aula": 'eval:doc.modulo=="General"',
+	}
+
+	mandatory_depends_on = {
+		"marca": 'eval:doc.modulo=="TI"',
+		"modelo": 'eval:doc.modulo=="TI"',
+		"unidad_medida": 'eval:doc.modulo=="Gastronomia"',
+		"pabellon": 'eval:doc.modulo=="General"',
+		"aula": 'eval:doc.modulo=="General"',
+		"motivo_cambio_estado": 'eval:doc.estado=="Inactivo"',
+	}
+
+	for field in doc.fields:
+		if field.fieldname in depends_on:
+			field.depends_on = depends_on[field.fieldname]
+		if field.fieldname in mandatory_depends_on:
+			field.mandatory_depends_on = mandatory_depends_on[field.fieldname]
+		if field.fieldname == "pabellon":
+			field.fetch_from = "ubicacion.pabellon"
+			field.fetch_if_empty = 1
+		if field.fieldname == "aula":
+			field.fetch_from = "ubicacion.aula"
+			field.fetch_if_empty = 1
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache(doctype=doctype_name)
+
+	return {"added": added, "configured": sorted(depends_on)}
+
+
+def fill_general_location_details_from_ubicacion():
+	"""Copy Pabellon/Aula from linked Ubicacion into General inventory items."""
+	items = frappe.get_all(
+		"Articulo de Inventario",
+		filters={"modulo": "General", "ubicacion": ["is", "set"]},
+		fields=["name", "ubicacion", "pabellon", "aula"],
+		limit_page_length=5000,
+	)
+
+	updated = []
+	for item in items:
+		ubicacion = frappe.db.get_value(
+			"Ubicacion",
+			item.ubicacion,
+			["pabellon", "aula"],
+			as_dict=True,
+		)
+		if not ubicacion:
+			continue
+
+		values = {}
+		if not item.pabellon and ubicacion.pabellon:
+			values["pabellon"] = ubicacion.pabellon
+		if not item.aula and ubicacion.aula:
+			values["aula"] = ubicacion.aula
+
+		if values:
+			frappe.db.set_value(
+				"Articulo de Inventario",
+				item.name,
+				values,
+				update_modified=False,
+			)
+			updated.append(item.name)
+
+	frappe.db.commit()
+	return {"updated": len(updated), "items": updated[:20]}
+
+
+def add_import_traceability_fields():
+	"""Add fields needed to preserve source Excel data during imports."""
+	doctype_name = "Articulo de Inventario"
+	doc = frappe.get_doc("DocType", doctype_name)
+	existing = {df.fieldname for df in doc.fields}
+	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
+
+	fields = [
+		{"fieldname": "cantidad", "label": "Cantidad", "fieldtype": "Float"},
+		{
+			"fieldname": "estado_conservacion",
+			"label": "Estado de conservacion",
+			"fieldtype": "Data",
+		},
+		{
+			"fieldname": "trazabilidad_importacion_section",
+			"label": "Trazabilidad de Importacion",
+			"fieldtype": "Section Break",
+		},
+		{"fieldname": "fuente_datos", "label": "Fuente de datos", "fieldtype": "Data"},
+		{"fieldname": "hoja_origen", "label": "Hoja origen", "fieldtype": "Data"},
+		{"fieldname": "numero_origen", "label": "Numero origen", "fieldtype": "Data"},
+	]
+
+	added = []
+	for field in fields:
+		if field["fieldname"] in existing:
+			continue
+		row = doc.append("fields", field)
+		row.idx = next_idx
+		next_idx += 1
+		added.append(field["fieldname"])
+
+	for field in doc.fields:
+		if field.fieldname == "cantidad":
+			field.depends_on = 'eval:doc.modulo!="Gastronomia"'
+		if field.fieldname == "estado_conservacion":
+			field.depends_on = 'eval:doc.modulo!="Gastronomia"'
+
+	if added:
+		doc.save(ignore_permissions=True)
+		frappe.db.commit()
+		frappe.clear_cache(doctype=doctype_name)
+
+	return {"added": added}
+
+
+def ensure_initial_reference_data():
+	"""Ensure import target locations and assignments exist; return their names."""
+	records = [
+		("Ubicacion", "nombre_ubicacion", "Laboratorio de computo", "TI"),
+		("Ubicacion", "nombre_ubicacion", "Almacen Soldadura", "TI"),
+		("Asignacion", "nombre_asignacion", "Laboratorio de computo", "TI"),
+		("Asignacion", "nombre_asignacion", "Almacen Soldadura", "TI"),
+	]
+	result = {}
+	for doctype, fieldname, value, modulo in records:
+		name = frappe.db.get_value(doctype, {fieldname: value})
+		if not name:
+			doc = frappe.get_doc(
+				{
+					"doctype": doctype,
+					fieldname: value,
+					"modulo": modulo,
+					"activo": "Si",
+				}
+			)
+			doc.insert(ignore_permissions=True)
+			name = doc.name
+		result[f"{doctype}:{value}"] = name
+
+	frappe.db.commit()
+	return result
+
+
+def mark_gastronomy_catalog_import_source():
+	"""Mark the imported gastronomy catalog records with their source file."""
+	names = frappe.get_all(
+		"Articulo de Inventario",
+		filters={
+			"fuente_datos": ["is", "not set"],
+			"modulo": "Gastronomia",
+			"codigo_interno": ["!=", "GAS-0001"],
+		},
+		pluck="name",
+		limit_page_length=2000,
+	)
+
+	for name in names:
+		frappe.db.set_value(
+			"Articulo de Inventario",
+			name,
+			{
+				"fuente_datos": "lista de insumos gastronomia.xlsx",
+				"hoja_origen": "INSUMOS",
+			},
+			update_modified=False,
+		)
+
+	frappe.db.commit()
+	return {"updated": len(names)}
+
+
+def configure_inventory_list_views():
+	"""Configure list columns, standard filters, and saved filters for inventory."""
+	doctype_name = "Articulo de Inventario"
+	doc = frappe.get_doc("DocType", doctype_name)
+
+	standard_filters = {
+		"modulo",
+		"grupo",
+		"ubicacion",
+		"estado",
+		"stock_actual",
+		"unidad_medida",
+		"es_perecible",
+		"categoria",
+	}
+	list_fields = {
+		"nombre_articulo",
+		"modulo",
+		"ubicacion",
+		"estado",
+		"grupo",
+		"stock_actual",
+		"unidad_medida",
+	}
+
+	for field in doc.fields:
+		if field.fieldname in standard_filters:
+			field.in_standard_filter = 1
+			field.in_filter = 1
+		if field.fieldname in list_fields:
+			field.in_list_view = 1
+
+	doc.save(ignore_permissions=True)
+
+	settings = frappe.db.exists("List View Settings", doctype_name)
+	fields = [
+		"`nombre_articulo`",
+		"`modulo`",
+		"`ubicacion`",
+		"`estado`",
+		"`grupo`",
+		"`stock_actual`",
+		"`unidad_medida`",
+	]
+	if settings:
+		settings_doc = frappe.get_doc("List View Settings", doctype_name)
+		is_new_settings = False
+	else:
+		settings_doc = frappe.get_doc({"doctype": "List View Settings", "name": doctype_name})
+		is_new_settings = True
+	settings_doc.total_fields = "7"
+	settings_doc.fields = json.dumps(fields)
+	if is_new_settings:
+		settings_doc.insert(ignore_permissions=True)
+	else:
+		settings_doc.save(ignore_permissions=True)
+
+	saved_filters = {
+		"Inventario TI": [[doctype_name, "modulo", "=", "TI", False]],
+		"Inventario Gastronomia": [[doctype_name, "modulo", "=", "Gastronomia", False]],
+		"Inventario General": [[doctype_name, "modulo", "=", "General", False]],
+		"Licores": [
+			[doctype_name, "modulo", "=", "Gastronomia", False],
+			[doctype_name, "grupo", "=", "LICORES", False],
+		],
+		"Gastronomia con Stock": [
+			[doctype_name, "modulo", "=", "Gastronomia", False],
+			[doctype_name, "stock_actual", ">", 0, False],
+		],
+	}
+
+	created = []
+	updated = []
+	for filter_name, filters in saved_filters.items():
+		name = frappe.db.exists(
+			"List Filter",
+			{"filter_name": filter_name, "reference_doctype": doctype_name},
+		)
+		payload = {
+			"filter_name": filter_name,
+			"reference_doctype": doctype_name,
+			"filters": json.dumps(filters),
+		}
+		if name:
+			filter_doc = frappe.get_doc("List Filter", name)
+			filter_doc.update(payload)
+			updated.append(filter_name)
+		else:
+			filter_doc = frappe.get_doc({"doctype": "List Filter", **payload})
+			created.append(filter_name)
+		filter_doc.save(ignore_permissions=True)
+
+	frappe.db.commit()
+	frappe.clear_cache(doctype=doctype_name)
+
+	return {"created_filters": created, "updated_filters": updated}
+
+
+def create_alerta_inventario_doctype():
+	"""Create the custom DocType used for inventory incidents and alerts."""
+	doctype_name = "Alerta de Inventario"
+	module = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+
+	if frappe.db.exists("DocType", doctype_name):
+		return {"created": False, "doctype": doctype_name}
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "DocType",
+			"name": doctype_name,
+			"module": module,
+			"custom": 1,
+			"allow_import": 1,
+			"title_field": "articulo",
+			"show_title_field_in_link": 1,
+			"fields": [
+				{
+					"fieldname": "datos_alerta_section",
+					"label": "Datos de Alerta",
+					"fieldtype": "Section Break",
+				},
+				{
+					"fieldname": "articulo",
+					"label": "Articulo",
+					"fieldtype": "Link",
+					"options": "Articulo de Inventario",
+					"reqd": 1,
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "tipo_alerta",
+					"label": "Tipo de alerta",
+					"fieldtype": "Select",
+					"options": "Stock bajo\nDañado\nPerdido\nVencido\nAjuste de stock\nOtro",
+					"reqd": 1,
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "modulo",
+					"label": "Modulo",
+					"fieldtype": "Select",
+					"options": "TI\nGastronomia\nGeneral",
+					"fetch_from": "articulo.modulo",
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "ubicacion",
+					"label": "Ubicacion",
+					"fieldtype": "Link",
+					"options": "Ubicacion",
+					"fetch_from": "articulo.ubicacion",
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "estado_alerta",
+					"label": "Estado de alerta",
+					"fieldtype": "Select",
+					"options": "Pendiente\nVerificado\nAjustado\nRechazado",
+					"default": "Pendiente",
+					"reqd": 1,
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "fecha_reporte",
+					"label": "Fecha de reporte",
+					"fieldtype": "Date",
+					"default": "Today",
+					"reqd": 1,
+					"in_list_view": 1,
+				},
+				{
+					"fieldname": "reportado_por",
+					"label": "Reportado por",
+					"fieldtype": "Link",
+					"options": "User",
+				},
+				{
+					"fieldname": "observacion",
+					"label": "Observacion",
+					"fieldtype": "Small Text",
+				},
+				{
+					"fieldname": "resolucion_section",
+					"label": "Resolucion",
+					"fieldtype": "Section Break",
+				},
+				{
+					"fieldname": "accion_tomada",
+					"label": "Accion tomada",
+					"fieldtype": "Small Text",
+				},
+				{
+					"fieldname": "fecha_resolucion",
+					"label": "Fecha de resolucion",
+					"fieldtype": "Date",
+				},
+			],
+			"permissions": [
+				{
+					"role": "System Manager",
+					"read": 1,
+					"write": 1,
+					"create": 1,
+					"delete": 1,
+					"report": 1,
+					"export": 1,
+					"import": 1,
+					"print": 1,
+					"email": 1,
+				}
+			],
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache(doctype=doctype_name)
+
+	return {"created": True, "doctype": doctype_name}
+
+
+def create_basic_inventory_reports():
+	"""Create query reports useful for the MVP presentation."""
+	module = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+	reports = [
+		{
+			"report_name": "Resumen Inventario por Modulo",
+			"ref_doctype": "Articulo de Inventario",
+			"roles": ["SuperAdministrador Inventario", "Admin General", "Revisor", "System Manager"],
+			"query": """
+select
+  modulo as "Modulo:Data:160",
+  count(name) as "Total:Int:100",
+  sum(case when estado = 'Activo' then 1 else 0 end) as "Activos:Int:100",
+  sum(case when estado = 'Inactivo' then 1 else 0 end) as "Inactivos:Int:100"
+from `tabArticulo de Inventario`
+group by modulo
+order by modulo
+""",
+		},
+		{
+			"report_name": "Stock Critico Gastronomia",
+			"ref_doctype": "Articulo de Inventario",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin Cocina",
+				"Admin General",
+				"Revisor",
+				"System Manager",
+			],
+			"query": """
+select
+  name as "ID:Link/Articulo de Inventario:140",
+  nombre_articulo as "Articulo:Data:260",
+  grupo as "Grupo:Data:140",
+  categoria as "Categoria:Data:160",
+  stock_actual as "Stock actual:Float:120",
+  stock_critico as "Stock critico:Float:120",
+  unidad_medida as "Unidad:Data:100",
+  ubicacion as "Ubicacion:Link/Ubicacion:160"
+from `tabArticulo de Inventario`
+where modulo = 'Gastronomia'
+  and ifnull(stock_critico, 0) > 0
+  and ifnull(stock_actual, 0) < ifnull(stock_critico, 0)
+order by grupo, nombre_articulo
+""",
+		},
+		{
+			"report_name": "Inventario TI por Ubicacion",
+			"ref_doctype": "Articulo de Inventario",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin General",
+				"Revisor",
+				"System Manager",
+			],
+			"query": """
+select
+  ubicacion as "Ubicacion:Link/Ubicacion:180",
+  nombre_articulo as "Articulo:Data:180",
+  count(name) as "Cantidad:Int:100"
+from `tabArticulo de Inventario`
+where modulo = 'TI'
+group by ubicacion, nombre_articulo
+order by ubicacion, nombre_articulo
+""",
+		},
+		{
+			"report_name": "Gastronomia sin Stock Critico",
+			"ref_doctype": "Articulo de Inventario",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin Cocina",
+				"Admin General",
+				"System Manager",
+			],
+			"query": """
+select
+  name as "ID:Link/Articulo de Inventario:140",
+  nombre_articulo as "Articulo:Data:260",
+  grupo as "Grupo:Data:140",
+  categoria as "Categoria:Data:160",
+  stock_actual as "Stock actual:Float:120",
+  stock_critico as "Stock critico:Float:120",
+  unidad_medida as "Unidad:Data:100"
+from `tabArticulo de Inventario`
+where modulo = 'Gastronomia'
+  and ifnull(stock_critico, 0) = 0
+order by grupo, nombre_articulo
+""",
+		},
+	]
+
+	created = []
+	updated = []
+	for item in reports:
+		name = frappe.db.exists("Report", item["report_name"])
+		payload = {
+			"report_name": item["report_name"],
+			"ref_doctype": item["ref_doctype"],
+			"is_standard": "No",
+			"module": module,
+			"report_type": "Query Report",
+			"query": item["query"].strip(),
+			"disabled": 0,
+		}
+		if name:
+			report = frappe.get_doc("Report", name)
+			report.update(payload)
+			report.roles = []
+			updated.append(item["report_name"])
+		else:
+			report = frappe.get_doc({"doctype": "Report", **payload})
+			created.append(item["report_name"])
+		for role in item["roles"]:
+			report.append("roles", {"role": role})
+		report.save(ignore_permissions=True)
+
+	frappe.db.commit()
+	return {"created": created, "updated": updated}
+
+
+def generate_stock_critical_alerts():
+	"""Create pending stock-low alerts for Gastronomia items under critical stock."""
+	items = frappe.get_all(
+		"Articulo de Inventario",
+		filters={
+			"modulo": "Gastronomia",
+			"stock_critico": [">", 0],
+		},
+		fields=[
+			"name",
+			"nombre_articulo",
+			"stock_actual",
+			"stock_critico",
+			"unidad_medida",
+			"ubicacion",
+		],
+		limit_page_length=5000,
+	)
+
+	created = []
+	for item in items:
+		if (item.stock_actual or 0) >= (item.stock_critico or 0):
+			continue
+
+		existing = frappe.db.exists(
+			"Alerta de Inventario",
+			{
+				"articulo": item.name,
+				"tipo_alerta": "Stock bajo",
+				"estado_alerta": "Pendiente",
+			},
+		)
+		if existing:
+			continue
+
+		alert = frappe.get_doc(
+			{
+				"doctype": "Alerta de Inventario",
+				"articulo": item.name,
+				"tipo_alerta": "Stock bajo",
+				"estado_alerta": "Pendiente",
+				"fecha_reporte": frappe.utils.today(),
+				"observacion": (
+					f"Stock actual {item.stock_actual or 0} {item.unidad_medida or ''} "
+					f"menor al stock critico {item.stock_critico or 0}."
+				),
+			}
+		)
+		alert.insert(ignore_permissions=True)
+		created.append(item.nombre_articulo)
+
+	frappe.db.commit()
+	return {"created": len(created), "items": created[:20]}
+
+
+def apply_default_gastronomy_stock_critical(default_value=10):
+	"""Set a default critical stock for Gastronomia items without a minimum."""
+	items = frappe.get_all(
+		"Articulo de Inventario",
+		filters={
+			"modulo": "Gastronomia",
+			"stock_critico": ["<=", 0],
+		},
+		pluck="name",
+		limit_page_length=5000,
+	)
+
+	for name in items:
+		frappe.db.set_value(
+			"Articulo de Inventario",
+			name,
+			"stock_critico",
+			default_value,
+			update_modified=False,
+		)
+
+	frappe.db.commit()
+	return {"updated": len(items), "stock_critico": default_value}
+
+
+def configure_inventory_role_permissions():
+	"""Configure the PRD roles and base permissions for the inventory MVP."""
+	roles = [
+		"SuperAdministrador Inventario",
+		"Admin TI",
+		"Admin Cocina",
+		"Admin General",
+		"Revisor",
+	]
+	for role in roles:
+		if not frappe.db.exists("Role", role):
+			frappe.get_doc({"doctype": "Role", "role_name": role, "desk_access": 1}).insert(
+				ignore_permissions=True
+			)
+
+	article_perms = {
+		"SuperAdministrador Inventario": _full_permission(import_=1),
+		"Admin TI": _manager_permission(import_=1),
+		"Admin Cocina": _manager_permission(import_=1),
+		"Admin General": _manager_permission(import_=1),
+		"Revisor": _read_only_permission(),
+		"System Manager": _full_permission(import_=1),
+	}
+	alert_perms = {
+		"SuperAdministrador Inventario": _full_permission(import_=1),
+		"Admin TI": _manager_permission(),
+		"Admin Cocina": _manager_permission(),
+		"Admin General": _manager_permission(),
+		"Revisor": _read_only_permission(),
+		"System Manager": _full_permission(import_=1),
+	}
+	reference_perms = {
+		"SuperAdministrador Inventario": _full_permission(import_=1),
+		"Admin TI": _read_only_permission(select=1),
+		"Admin Cocina": _read_only_permission(select=1),
+		"Admin General": _manager_permission(),
+		"Revisor": _read_only_permission(select=1),
+		"System Manager": _full_permission(import_=1),
+	}
+	user_perms = {
+		"SuperAdministrador Inventario": _manager_permission(),
+		"Admin TI": _read_only_permission(),
+		"Admin Cocina": _read_only_permission(),
+		"Admin General": _read_only_permission(),
+		"Revisor": _read_only_permission(),
+		"System Manager": _full_permission(),
+	}
+
+	results = {}
+	for doctype, permissions in {
+		"Articulo de Inventario": article_perms,
+		"Alerta de Inventario": alert_perms,
+		"Ubicacion": reference_perms,
+		"Asignacion": reference_perms,
+		"User": user_perms,
+	}.items():
+		if frappe.db.exists("DocType", doctype):
+			results[doctype] = _apply_doctype_permissions(doctype, permissions)
+
+	frappe.db.commit()
+	frappe.clear_cache()
+	return results
+
+
+def _full_permission(import_=0):
+	return {
+		"read": 1,
+		"write": 1,
+		"create": 1,
+		"delete": 1,
+		"report": 1,
+		"export": 1,
+		"import": import_,
+		"print": 1,
+		"email": 1,
+		"share": 1,
+		"select": 1,
+	}
+
+
+def _manager_permission(import_=0):
+	return {
+		"read": 1,
+		"write": 1,
+		"create": 1,
+		"delete": 1,
+		"report": 1,
+		"export": 1,
+		"import": import_,
+		"print": 1,
+		"email": 1,
+		"select": 1,
+	}
+
+
+def _read_only_permission(select=0):
+	return {
+		"read": 1,
+		"report": 1,
+		"print": 1,
+		"select": select,
+	}
+
+
+def _apply_doctype_permissions(doctype_name, permissions_by_role):
+	doc = frappe.get_doc("DocType", doctype_name)
+	if not doc.custom:
+		return _apply_custom_docperms(doctype_name, permissions_by_role)
+
+	existing = {(perm.role, cint(perm.permlevel)): perm for perm in doc.permissions}
+	updated = []
+	created = []
+
+	for role, permissions in permissions_by_role.items():
+		key = (role, 0)
+		if key in existing:
+			perm = existing[key]
+			updated.append(role)
+		else:
+			perm = doc.append("permissions", {"role": role, "permlevel": 0})
+			created.append(role)
+
+		for field in (
+			"read",
+			"write",
+			"create",
+			"delete",
+			"submit",
+			"cancel",
+			"amend",
+			"report",
+			"export",
+			"import",
+			"print",
+			"email",
+			"share",
+			"select",
+		):
+			setattr(perm, field, cint(permissions.get(field)))
+
+	doc.save(ignore_permissions=True)
+	frappe.clear_cache(doctype=doctype_name)
+	return {"created": created, "updated": updated}
+
+
+def _apply_custom_docperms(doctype_name, permissions_by_role):
+	updated = []
+	created = []
+	for role, permissions in permissions_by_role.items():
+		name = frappe.db.exists(
+			"Custom DocPerm",
+			{"parent": doctype_name, "role": role, "permlevel": 0},
+		)
+		if name:
+			perm = frappe.get_doc("Custom DocPerm", name)
+			updated.append(role)
+		else:
+			perm = frappe.get_doc(
+				{
+					"doctype": "Custom DocPerm",
+					"parent": doctype_name,
+					"role": role,
+					"permlevel": 0,
+				}
+			)
+			created.append(role)
+
+		for field in (
+			"read",
+			"write",
+			"create",
+			"delete",
+			"submit",
+			"cancel",
+			"amend",
+			"report",
+			"export",
+			"import",
+			"print",
+			"email",
+			"share",
+			"select",
+		):
+			setattr(perm, field, cint(permissions.get(field)))
+
+		if name:
+			perm.save(ignore_permissions=True)
+		else:
+			perm.insert(ignore_permissions=True)
+
+	frappe.clear_cache(doctype=doctype_name)
+	return {"created": created, "updated": updated}
+
+
+def get_inventory_permission_summary():
+	"""Return a compact permission summary for the PRD roles."""
+	roles = {
+		"SuperAdministrador Inventario",
+		"Admin TI",
+		"Admin Cocina",
+		"Admin General",
+		"Revisor",
+		"System Manager",
+	}
+	summary = {}
+	for doctype_name in ("Articulo de Inventario", "Alerta de Inventario", "Ubicacion", "Asignacion"):
+		if not frappe.db.exists("DocType", doctype_name):
+			continue
+		doc = frappe.get_doc("DocType", doctype_name)
+		doctype_permissions = [
+			{
+				"role": perm.role,
+				"read": perm.read,
+				"write": perm.write,
+				"create": perm.create,
+				"delete": perm.delete,
+				"report": perm.report,
+				"export": perm.export,
+				"import": perm.get("import"),
+				"print": perm.print,
+				"select": perm.select,
+			}
+			for perm in doc.permissions
+			if perm.role in roles
+		]
+		custom_permissions = frappe.get_all(
+			"Custom DocPerm",
+			filters={"parent": doctype_name, "role": ["in", list(roles)]},
+			fields=[
+				"role",
+				"read",
+				"write",
+				"create",
+				"delete",
+				"report",
+				"export",
+				"import",
+				"print",
+				"select",
+			],
+			limit_page_length=100,
+		)
+		summary[doctype_name] = doctype_permissions + custom_permissions
+	return summary
+
+
+def create_inventory_workspace():
+	"""Create a visible workspace with shortcuts for the inventory MVP."""
+	module = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+	name = "Inventario CEDHI"
+
+	content = [
+		{
+			"id": "inventario-header",
+			"type": "header",
+			"data": {
+				"text": '<span style="font-size: 18px;"><b>Sistema de Inventario CEDHI</b></span>',
+				"col": 12,
+			},
+		},
+		{"id": "shortcut-articulos", "type": "shortcut", "data": {"shortcut_name": "Articulos", "col": 3}},
+		{"id": "shortcut-alertas", "type": "shortcut", "data": {"shortcut_name": "Alertas", "col": 3}},
+		{"id": "shortcut-resumen", "type": "shortcut", "data": {"shortcut_name": "Resumen por Modulo", "col": 3}},
+		{"id": "shortcut-stock", "type": "shortcut", "data": {"shortcut_name": "Stock Critico", "col": 3}},
+		{"id": "shortcut-ti", "type": "shortcut", "data": {"shortcut_name": "TI por Ubicacion", "col": 3}},
+		{"id": "shortcut-sin-stock", "type": "shortcut", "data": {"shortcut_name": "Sin Stock Critico", "col": 3}},
+	]
+
+	shortcuts = [
+		{
+			"type": "DocType",
+			"link_to": "Articulo de Inventario",
+			"doc_view": "List",
+			"label": "Articulos",
+			"color": "Blue",
+		},
+		{
+			"type": "DocType",
+			"link_to": "Alerta de Inventario",
+			"doc_view": "List",
+			"label": "Alertas",
+			"color": "Orange",
+		},
+		{
+			"type": "Report",
+			"link_to": "Resumen Inventario por Modulo",
+			"label": "Resumen por Modulo",
+			"report_ref_doctype": "Articulo de Inventario",
+			"color": "Green",
+		},
+		{
+			"type": "Report",
+			"link_to": "Stock Critico Gastronomia",
+			"label": "Stock Critico",
+			"report_ref_doctype": "Articulo de Inventario",
+			"color": "Red",
+		},
+		{
+			"type": "Report",
+			"link_to": "Inventario TI por Ubicacion",
+			"label": "TI por Ubicacion",
+			"report_ref_doctype": "Articulo de Inventario",
+			"color": "Grey",
+		},
+		{
+			"type": "Report",
+			"link_to": "Gastronomia sin Stock Critico",
+			"label": "Sin Stock Critico",
+			"report_ref_doctype": "Articulo de Inventario",
+			"color": "Orange",
+		},
+	]
+
+	roles = [
+		{"role": "System Manager"},
+		{"role": "SuperAdministrador Inventario"},
+		{"role": "Admin TI"},
+		{"role": "Admin Cocina"},
+		{"role": "Admin General"},
+		{"role": "Revisor"},
+	]
+
+	if frappe.db.exists("Workspace", name):
+		workspace = frappe.get_doc("Workspace", name)
+		workspace.shortcuts = []
+		workspace.roles = []
+		created = False
+	else:
+		workspace = frappe.get_doc({"doctype": "Workspace", "label": name, "title": name})
+		created = True
+
+	workspace.update(
+		{
+			"label": name,
+			"title": name,
+			"module": module,
+			"icon": "package",
+			"indicator_color": "blue",
+			"public": 1,
+			"is_hidden": 0,
+			"hide_custom": 0,
+			"content": json.dumps(content),
+		}
+	)
+
+	for shortcut in shortcuts:
+		workspace.append("shortcuts", shortcut)
+	for role in roles:
+		workspace.append("roles", role)
+
+	if created:
+		workspace.insert(ignore_permissions=True)
+	else:
+		workspace.save(ignore_permissions=True)
+
+	frappe.db.commit()
+	frappe.clear_cache()
+	return {"created": created, "workspace": name}
