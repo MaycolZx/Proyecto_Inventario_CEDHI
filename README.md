@@ -18,6 +18,28 @@ apps/inventario_cedhi
 
 No se debe subir todo `my-bench`. Las carpetas `env`, `sites`, `logs`, `config`, `apps/frappe` y `apps/erpnext` son parte de la instalacion local o dependencias externas.
 
+## Que NO viene incluido al clonar
+
+Al clonar este repositorio no se obtiene la base de datos local de Anthony ni el contenido ya cargado en su sitio `inventario.local`.
+
+Este repo SI incluye:
+
+- Codigo de la app `inventario_cedhi`.
+- Scripts para crear/configurar campos, roles, permisos, reportes y workspace.
+- Excel originales y CSV preparados para importacion.
+- Documentacion del proyecto.
+
+Este repo NO incluye:
+
+- Usuarios creados en la maquina de Anthony.
+- Contrasenas.
+- Sesiones iniciadas.
+- Articulos ya importados dentro de MariaDB.
+- Archivos cargados en `sites/inventario.local/private/files`.
+- Backups o configuracion local de `sites`.
+
+Cada integrante debe crear su propio sitio local, instalar la app, ejecutar los scripts de configuracion y luego importar los CSV.
+
 ## Requisitos
 
 - Frappe Bench instalado
@@ -60,6 +82,15 @@ bench --site inventario.local clear-cache
 
 Si `bench start` estaba corriendo, reiniciarlo despues de cambios en `hooks.py`.
 
+Al terminar esta configuracion, el sitio tendra la estructura del MVP:
+
+- DocTypes y campos necesarios.
+- Roles y permisos del PRD.
+- Reportes iniciales.
+- Workspace `Inventario CEDHI`.
+
+Pero todavia no tendra los articulos cargados. Los articulos se cargan importando los CSV.
+
 ## Datos iniciales
 
 Los Excel originales estan en:
@@ -100,6 +131,26 @@ Insertando nuevos registros
 
 No usar archivos dentro de `sites/inventario.local/private/files` como fuente del repo. Esos son archivos locales cargados en un sitio.
 
+### Carga de articulos
+
+Despues de ejecutar la configuracion inicial, importar los CSV desde Frappe:
+
+1. Abrir `Importacion de Datos`.
+2. Crear una nueva importacion.
+3. En `Tipo de Documento`, elegir `Articulo de Inventario`.
+4. En `Tipo de importacion`, elegir `Insertando nuevos registros`.
+5. Subir uno de los CSV de `datos_iniciales/csv/`.
+6. Revisar la vista previa.
+7. Iniciar importacion.
+
+Repetir el proceso para:
+
+- `datos_iniciales/csv/import_articulos_gastronomia.csv`
+- `datos_iniciales/csv/import_articulos_gastronomia_licores.csv`
+- `datos_iniciales/csv/import_articulos_ti_sala_computo.csv`
+
+Estos CSV son la fuente compartida del equipo. La importacion que ya existe en la maquina de Anthony no se copia automaticamente al clonar GitHub.
+
 ## Roles del sistema
 
 Roles definidos para el MVP:
@@ -124,7 +175,19 @@ inventario_cedhi/hooks.py
 
 ## Usuarios de prueba
 
-Para pruebas locales se pueden crear usuarios desde Frappe y asignarles roles. Como los correos `@cedhi.local` no existen realmente, la contrasena temporal se puede establecer desde consola:
+Los usuarios tambien viven en la base local de cada sitio. Por eso, al clonar el repo no apareceran automaticamente los usuarios de Anthony.
+
+Cada integrante puede crear usuarios de prueba desde Frappe y asignarles roles. Ejemplos:
+
+```text
+superadmin@cedhi.local    -> SuperAdministrador Inventario
+admin.ti@cedhi.local      -> Admin TI
+admin.cocina@cedhi.local  -> Admin Cocina
+admin.general@cedhi.local -> Admin General
+revisor@cedhi.local       -> Revisor
+```
+
+Como los correos `@cedhi.local` no existen realmente, la contrasena temporal se puede establecer desde consola:
 
 ```bash
 bench --site inventario.local execute frappe.utils.password.update_password --args '["usuario@cedhi.local", "Cedhi12345"]'
