@@ -148,6 +148,12 @@ has_permission = {
 # 		"on_trash": "method"
 # 	}
 # }
+doc_events = {
+	"Alerta de Inventario": {
+		"before_insert": "inventario_cedhi.alerts.set_alert_defaults",
+		"validate": "inventario_cedhi.alerts.set_alert_defaults",
+	}
+}
 
 # Scheduled Tasks
 # ---------------

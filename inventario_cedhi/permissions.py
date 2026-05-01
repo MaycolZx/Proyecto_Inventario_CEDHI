@@ -3,6 +3,7 @@ import frappe
 
 SYSTEM_ACCESS_ROLES = {"Administrator", "System Manager"}
 INVENTORY_SUPERADMIN_ROLE = "SuperAdministrador Inventario"
+REPORTER_ROLE = "Reportante"
 FULL_ACCESS_ROLES = SYSTEM_ACCESS_ROLES | {INVENTORY_SUPERADMIN_ROLE}
 MODULE_WRITE_ACCESS = {
 	"Admin TI": {"TI"},
@@ -10,7 +11,7 @@ MODULE_WRITE_ACCESS = {
 	"Admin General": {"General"},
 }
 READ_ALL_ROLES = FULL_ACCESS_ROLES | {"Admin General", "Revisor"}
-LIMITED_USER_ROLES = {"Admin TI", "Admin Cocina", "Admin General", "Revisor"}
+LIMITED_USER_ROLES = {"Admin TI", "Admin Cocina", "Admin General", "Revisor", REPORTER_ROLE}
 INVENTORY_USER_ROLES = LIMITED_USER_ROLES | {INVENTORY_SUPERADMIN_ROLE}
 
 
@@ -56,10 +57,17 @@ def _module_condition(doctype, modules):
 
 
 def article_query_conditions(user=None):
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles:
+		return None
 	return _module_condition("Articulo de Inventario", _allowed_modules_for_read(user))
 
 
 def alert_query_conditions(user=None):
+	user = user or frappe.session.user
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles and not roles & (FULL_ACCESS_ROLES | set(MODULE_WRITE_ACCESS) | {"Admin General", "Revisor"}):
+		return f"`tabAlerta de Inventario`.`reportado_por` = {frappe.db.escape(user)}"
 	return _module_condition("Alerta de Inventario", _allowed_modules_for_read(user))
 
 
@@ -91,10 +99,23 @@ def user_query_conditions(user=None):
 
 
 def article_has_permission(doc, ptype=None, user=None):
+	ptype = ptype or "read"
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles:
+		return ptype in {"read", "select", "print", "report"}
 	return _has_inventory_module_permission(doc, ptype, user)
 
 
 def alert_has_permission(doc, ptype=None, user=None):
+	ptype = ptype or "read"
+	user = user or frappe.session.user
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles and not roles & (FULL_ACCESS_ROLES | set(MODULE_WRITE_ACCESS) | {"Admin General", "Revisor"}):
+		if ptype == "create":
+			return True
+		if ptype in {"read", "write", "select", "print"}:
+			return bool(doc and doc.reportado_por == user)
+		return False
 	return _has_inventory_module_permission(doc, ptype, user)
 
 

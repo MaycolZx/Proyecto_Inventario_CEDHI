@@ -706,6 +706,7 @@ def configure_inventory_role_permissions():
 		"Admin Cocina",
 		"Admin General",
 		"Revisor",
+		"Reportante",
 	]
 	for role in roles:
 		if not frappe.db.exists("Role", role):
@@ -719,6 +720,7 @@ def configure_inventory_role_permissions():
 		"Admin Cocina": _manager_permission(import_=1),
 		"Admin General": _manager_permission(import_=1),
 		"Revisor": _read_only_permission(),
+		"Reportante": _read_only_permission(select=1),
 		"System Manager": _full_permission(import_=1),
 	}
 	alert_perms = {
@@ -727,6 +729,13 @@ def configure_inventory_role_permissions():
 		"Admin Cocina": _manager_permission(),
 		"Admin General": _manager_permission(),
 		"Revisor": _read_only_permission(),
+		"Reportante": {
+			"read": 1,
+			"write": 1,
+			"create": 1,
+			"print": 1,
+			"select": 1,
+		},
 		"System Manager": _full_permission(import_=1),
 	}
 	reference_perms = {
@@ -735,6 +744,7 @@ def configure_inventory_role_permissions():
 		"Admin Cocina": _read_only_permission(select=1),
 		"Admin General": _manager_permission(),
 		"Revisor": _read_only_permission(select=1),
+		"Reportante": _read_only_permission(select=1),
 		"System Manager": _full_permission(import_=1),
 	}
 	user_perms = {
@@ -743,6 +753,7 @@ def configure_inventory_role_permissions():
 		"Admin Cocina": _read_only_permission(),
 		"Admin General": _read_only_permission(),
 		"Revisor": _read_only_permission(),
+		"Reportante": _read_only_permission(),
 		"System Manager": _full_permission(),
 	}
 	user_role_management_perms = {
@@ -1031,6 +1042,7 @@ def create_inventory_workspace():
 		{"role": "Admin Cocina"},
 		{"role": "Admin General"},
 		{"role": "Revisor"},
+		{"role": "Reportante"},
 	]
 
 	if frappe.db.exists("Workspace", name):

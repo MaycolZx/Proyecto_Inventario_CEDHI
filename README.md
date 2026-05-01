@@ -160,6 +160,7 @@ Roles definidos para el MVP:
 - `Admin Cocina`: gestiona solo articulos del modulo Gastronomia.
 - `Admin General`: edita General y puede visualizar los otros modulos.
 - `Revisor`: solo lectura.
+- `Reportante`: crea alertas/incidencias y ve solo sus propios reportes.
 
 Las reglas por modulo estan en:
 
@@ -185,6 +186,7 @@ admin.ti@cedhi.local      -> Admin TI
 admin.cocina@cedhi.local  -> Admin Cocina
 admin.general@cedhi.local -> Admin General
 revisor@cedhi.local       -> Revisor
+profesor@cedhi.local      -> Reportante
 ```
 
 Como los correos `@cedhi.local` no existen realmente, la contrasena temporal se puede establecer desde consola:
@@ -209,6 +211,34 @@ Reportes iniciales:
 - `Stock Critico Gastronomia`
 - `Inventario TI por Ubicacion`
 - `Gastronomia sin Stock Critico`
+
+## Flujo de alertas
+
+Las alertas no nacen principalmente desde los administradores. El flujo esperado del MVP es:
+
+```text
+Profesor o usuario reportante
+-> crea una Alerta de Inventario
+-> el sistema toma modulo y ubicacion desde el articulo
+-> Admin TI / Admin Cocina / Admin General revisa segun su modulo
+-> SuperAdministrador Inventario puede ver todas las alertas
+```
+
+Permisos principales:
+
+- `Reportante`: puede crear alertas y ver sus propias alertas.
+- `Admin TI`: recibe y gestiona alertas del modulo TI.
+- `Admin Cocina`: recibe y gestiona alertas del modulo Gastronomia.
+- `Admin General`: recibe y gestiona alertas del modulo General.
+- `Revisor`: puede leer alertas, sin resolverlas.
+- `SuperAdministrador Inventario`: ve y gestiona todas.
+
+Al crear una alerta, el sistema completa automaticamente:
+
+- `Reportado por`
+- `Fecha de reporte`
+- `Modulo`
+- `Ubicacion`
 
 ## Flujo de trabajo con Git
 
