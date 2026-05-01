@@ -745,6 +745,16 @@ def configure_inventory_role_permissions():
 		"Revisor": _read_only_permission(),
 		"System Manager": _full_permission(),
 	}
+	user_role_management_perms = {
+		"SuperAdministrador Inventario": {
+			**_manager_permission(),
+			"permlevel": 1,
+		},
+		"System Manager": {
+			**_full_permission(),
+			"permlevel": 1,
+		},
+	}
 
 	results = {}
 	for doctype, permissions in {
@@ -756,6 +766,8 @@ def configure_inventory_role_permissions():
 	}.items():
 		if frappe.db.exists("DocType", doctype):
 			results[doctype] = _apply_doctype_permissions(doctype, permissions)
+
+	results["User Permlevel 1"] = _apply_custom_docperms("User", user_role_management_perms)
 
 	frappe.db.commit()
 	frappe.clear_cache()
@@ -847,9 +859,10 @@ def _apply_custom_docperms(doctype_name, permissions_by_role):
 	updated = []
 	created = []
 	for role, permissions in permissions_by_role.items():
+		permlevel = cint(permissions.get("permlevel"))
 		name = frappe.db.exists(
 			"Custom DocPerm",
-			{"parent": doctype_name, "role": role, "permlevel": 0},
+			{"parent": doctype_name, "role": role, "permlevel": permlevel},
 		)
 		if name:
 			perm = frappe.get_doc("Custom DocPerm", name)
@@ -860,7 +873,7 @@ def _apply_custom_docperms(doctype_name, permissions_by_role):
 					"doctype": "Custom DocPerm",
 					"parent": doctype_name,
 					"role": role,
-					"permlevel": 0,
+					"permlevel": permlevel,
 				}
 			)
 			created.append(role)
