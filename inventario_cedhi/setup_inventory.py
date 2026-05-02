@@ -5,6 +5,286 @@ from frappe.utils.password import update_password
 from frappe.utils import cint
 
 
+INVENTORY_MODULE = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+
+
+def setup_inventory_mvp():
+	"""Create and configure the complete MVP structure in the right order."""
+	results = {}
+	results["Core DocTypes"] = create_core_inventory_doctypes()
+	results["Reference Data"] = ensure_initial_reference_data()
+	results["Gastronomy Fields"] = add_gastronomy_catalog_fields()
+	results["Import Traceability Fields"] = add_import_traceability_fields()
+	results["Module Form Rules"] = configure_module_specific_article_form()
+	results["Alert DocType"] = create_alerta_inventario_doctype()
+	results["Role Permissions"] = configure_inventory_role_permissions()
+	results["List Views"] = configure_inventory_list_views()
+	results["Reports"] = create_basic_inventory_reports()
+	results["Workspace"] = create_inventory_workspace()
+	frappe.db.commit()
+	frappe.clear_cache()
+	return results
+
+
+def create_core_inventory_doctypes():
+	"""Create the base custom DocTypes required before fields/reports are configured."""
+	ensure_inventory_module_def()
+	results = {
+		"Ubicacion": create_ubicacion_doctype(),
+		"Asignacion": create_asignacion_doctype(),
+		"Articulo de Inventario": create_articulo_inventario_doctype(),
+	}
+	frappe.db.commit()
+	return results
+
+
+def ensure_inventory_module_def():
+	"""Ensure the app module exists for custom DocTypes and workspace links."""
+	if frappe.db.exists("Module Def", INVENTORY_MODULE):
+		return {"created": False, "module": INVENTORY_MODULE}
+
+	module = frappe.get_doc(
+		{
+			"doctype": "Module Def",
+			"module_name": INVENTORY_MODULE,
+			"app_name": "inventario_cedhi",
+			"custom": 1,
+		}
+	)
+	module.insert(ignore_permissions=True)
+	return {"created": True, "module": INVENTORY_MODULE}
+
+
+def create_ubicacion_doctype():
+	"""Create the Ubicacion DocType used as the physical inventory location."""
+	doctype_name = "Ubicacion"
+	fields = [
+		{
+			"fieldname": "datos_ubicacion_section",
+			"label": "Datos de Ubicacion",
+			"fieldtype": "Section Break",
+		},
+		{
+			"fieldname": "nombre_ubicacion",
+			"label": "Nombre de ubicacion",
+			"fieldtype": "Data",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "modulo",
+			"label": "Modulo",
+			"fieldtype": "Select",
+			"options": "TI\nGastronomia\nGeneral",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{"fieldname": "pabellon", "label": "Pabellon", "fieldtype": "Data"},
+		{"fieldname": "aula", "label": "Aula", "fieldtype": "Data"},
+		{
+			"fieldname": "activo",
+			"label": "Activo",
+			"fieldtype": "Select",
+			"options": "Si\nNo",
+			"default": "Si",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+	]
+	return _create_or_update_core_doctype(doctype_name, fields, "nombre_ubicacion")
+
+
+def create_asignacion_doctype():
+	"""Create the Asignacion DocType used to group article responsibility."""
+	doctype_name = "Asignacion"
+	fields = [
+		{
+			"fieldname": "datos_asignacion_section",
+			"label": "Datos de Asignacion",
+			"fieldtype": "Section Break",
+		},
+		{
+			"fieldname": "nombre_asignacion",
+			"label": "Nombre de asignacion",
+			"fieldtype": "Data",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "modulo",
+			"label": "Modulo",
+			"fieldtype": "Select",
+			"options": "TI\nGastronomia\nGeneral",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "activo",
+			"label": "Activo",
+			"fieldtype": "Select",
+			"options": "Si\nNo",
+			"default": "Si",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+	]
+	return _create_or_update_core_doctype(doctype_name, fields, "nombre_asignacion")
+
+
+def create_articulo_inventario_doctype():
+	"""Create the main inventory article DocType."""
+	doctype_name = "Articulo de Inventario"
+	fields = [
+		{
+			"fieldname": "datos_generales_section",
+			"label": "Datos Generales",
+			"fieldtype": "Section Break",
+		},
+		{
+			"fieldname": "nombre_articulo",
+			"label": "Nombre del Articulo",
+			"fieldtype": "Data",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{"fieldname": "descripcion", "label": "Descripcion", "fieldtype": "Small Text"},
+		{
+			"fieldname": "modulo",
+			"label": "Modulo",
+			"fieldtype": "Select",
+			"options": "TI\nGastronomia\nGeneral",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "ubicacion",
+			"label": "Ubicacion",
+			"fieldtype": "Link",
+			"options": "Ubicacion",
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "asignacion",
+			"label": "Asignacion",
+			"fieldtype": "Link",
+			"options": "Asignacion",
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "estado",
+			"label": "Estado",
+			"fieldtype": "Select",
+			"options": "Activo\nInactivo",
+			"default": "Activo",
+			"reqd": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{"fieldname": "fecha_adquisicion", "label": "Fecha de adquisicion", "fieldtype": "Date"},
+		{
+			"fieldname": "datos_tecnicos_section",
+			"label": "Datos Tecnicos",
+			"fieldtype": "Section Break",
+		},
+		{"fieldname": "marca", "label": "Marca", "fieldtype": "Data"},
+		{"fieldname": "modelo", "label": "Modelo", "fieldtype": "Data"},
+		{"fieldname": "codigo_interno", "label": "Codigo interno", "fieldtype": "Data"},
+		{"fieldname": "fotografia", "label": "Fotografia", "fieldtype": "Attach Image"},
+		{
+			"fieldname": "datos_de_stock_section",
+			"label": "Datos de Stock",
+			"fieldtype": "Section Break",
+		},
+		{"fieldname": "stock_actual", "label": "Stock actual", "fieldtype": "Float"},
+		{"fieldname": "stock_critico", "label": "Stock critico", "fieldtype": "Float"},
+		{"fieldname": "unidad_medida", "label": "Unidad de medida", "fieldtype": "Data"},
+		{
+			"fieldname": "es_perecible",
+			"label": "Es perecible",
+			"fieldtype": "Select",
+			"options": "Si\nNo",
+			"default": "No",
+		},
+		{"fieldname": "fecha_vencimiento", "label": "Fecha de vencimiento", "fieldtype": "Date"},
+		{
+			"fieldname": "trazabilidad_section",
+			"label": "Trazabilidad",
+			"fieldtype": "Section Break",
+		},
+		{
+			"fieldname": "motivo_cambio_estado",
+			"label": "Motivo de cambio de estado",
+			"fieldtype": "Small Text",
+		},
+	]
+	return _create_or_update_core_doctype(doctype_name, fields, "nombre_articulo")
+
+
+def _create_or_update_core_doctype(doctype_name, fields, title_field):
+	if frappe.db.exists("DocType", doctype_name):
+		doc = frappe.get_doc("DocType", doctype_name)
+		created = False
+	else:
+		doc = frappe.get_doc(
+			{
+				"doctype": "DocType",
+				"name": doctype_name,
+				"module": INVENTORY_MODULE,
+				"custom": 1,
+				"allow_import": 1,
+				"fields": [],
+				"permissions": [
+					{
+						"role": "System Manager",
+						"read": 1,
+						"write": 1,
+						"create": 1,
+						"delete": 1,
+						"report": 1,
+						"export": 1,
+						"import": 1,
+						"print": 1,
+						"email": 1,
+					}
+				],
+			}
+		)
+		created = True
+
+	doc.module = INVENTORY_MODULE
+	doc.custom = 1
+	doc.allow_import = 1
+	doc.title_field = title_field
+	doc.show_title_field_in_link = 1
+	doc.show_name_in_global_search = 1
+
+	existing = {df.fieldname for df in doc.fields}
+	added = []
+	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
+	for field in fields:
+		if field["fieldname"] in existing:
+			continue
+		row = doc.append("fields", field)
+		row.idx = next_idx
+		next_idx += 1
+		added.append(field["fieldname"])
+
+	if created:
+		doc.insert(ignore_permissions=True)
+	else:
+		doc.save(ignore_permissions=True)
+
+	frappe.clear_cache(doctype=doctype_name)
+	return {"created": created, "added_fields": added}
+
+
 def add_gastronomy_catalog_fields():
 	"""Add MVP catalog fields used by the gastronomy inventory import."""
 	doctype_name = "Articulo de Inventario"
@@ -374,7 +654,7 @@ def configure_inventory_list_views():
 def create_alerta_inventario_doctype():
 	"""Create the custom DocType used for inventory incidents and alerts."""
 	doctype_name = "Alerta de Inventario"
-	module = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+	module = INVENTORY_MODULE
 
 	if frappe.db.exists("DocType", doctype_name):
 		return {"created": False, "doctype": doctype_name}
@@ -500,7 +780,7 @@ def create_alerta_inventario_doctype():
 
 def create_basic_inventory_reports():
 	"""Create query reports useful for the MVP presentation."""
-	module = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+	module = INVENTORY_MODULE
 	reports = [
 		{
 			"report_name": "Resumen Inventario por Modulo",
@@ -996,25 +1276,29 @@ def create_inventory_role_profiles():
 	updated = []
 	for profile_name, roles in profiles.items():
 		if frappe.db.exists("Role Profile", profile_name):
-			profile = frappe.get_doc("Role Profile", profile_name)
-			profile.roles = []
+			frappe.db.delete("Has Role", {"parenttype": "Role Profile", "parent": profile_name})
 			updated.append(profile_name)
 		else:
 			profile = frappe.get_doc(
 				{
 					"doctype": "Role Profile",
+					"name": profile_name,
 					"role_profile": profile_name,
 				}
 			)
+			profile.db_insert()
 			created.append(profile_name)
 
 		for role in roles:
-			profile.append("roles", {"role": role})
-
-		if profile.is_new():
-			profile.insert(ignore_permissions=True)
-		else:
-			profile.save(ignore_permissions=True)
+			frappe.get_doc(
+				{
+					"doctype": "Has Role",
+					"parent": profile_name,
+					"parenttype": "Role Profile",
+					"parentfield": "roles",
+					"role": role,
+				}
+			).db_insert()
 
 	frappe.db.commit()
 	return {"created": created, "updated": updated}
@@ -1205,7 +1489,7 @@ def get_inventory_permission_summary():
 
 def create_inventory_workspace():
 	"""Create a visible workspace with shortcuts for the inventory MVP."""
-	module = "Sistema de Gestión de Inventario CEDHI Nueva Arequipa"
+	module = INVENTORY_MODULE
 	name = "Inventario CEDHI"
 
 	content = [

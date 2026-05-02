@@ -66,21 +66,16 @@ bench --site inventario.local install-app inventario_cedhi
 
 ## Configuracion inicial del MVP
 
-Ejecutar estos comandos desde la raiz del bench:
+Ejecutar este comando desde la raiz del bench:
 
 ```bash
-bench --site inventario.local execute inventario_cedhi.setup_inventory.add_gastronomy_catalog_fields
-bench --site inventario.local execute inventario_cedhi.setup_inventory.add_import_traceability_fields
-bench --site inventario.local execute inventario_cedhi.setup_inventory.configure_module_specific_article_form
-bench --site inventario.local execute inventario_cedhi.setup_inventory.create_alerta_inventario_doctype
-bench --site inventario.local execute inventario_cedhi.setup_inventory.create_basic_inventory_reports
-bench --site inventario.local execute inventario_cedhi.setup_inventory.configure_inventory_list_views
-bench --site inventario.local execute inventario_cedhi.setup_inventory.create_inventory_workspace
-bench --site inventario.local execute inventario_cedhi.setup_inventory.configure_inventory_role_permissions
+bench --site inventario.local execute inventario_cedhi.setup_inventory.setup_inventory_mvp
 bench --site inventario.local clear-cache
 ```
 
 Si `bench start` estaba corriendo, reiniciarlo despues de cambios en `hooks.py`.
+
+Este comando crea primero los DocTypes base (`Ubicacion`, `Asignacion`, `Articulo de Inventario`) y despues configura campos, alertas, roles, permisos, reportes y workspace. Por eso es el comando recomendado para una instalacion nueva.
 
 Al terminar esta configuracion, el sitio tendra la estructura del MVP:
 
