@@ -300,6 +300,7 @@ Luego abrir un Pull Request hacia `develop`.
 
 - `docs/guia_inicio_proyecto.md`
 - `docs/analisis_datos_iniciales.md`
+- `docs/arquitectura_base_datos.md`
 - `PRD_ Sistema de Inventario Integral1.pdf`
 - `Defincion MVP  Proyecto de Prácticas Sociales ABS 2026-01 (1).pdf`
 
