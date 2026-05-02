@@ -59,7 +59,10 @@ def _module_condition(doctype, modules):
 def article_query_conditions(user=None):
 	roles = _user_roles(user)
 	if REPORTER_ROLE in roles:
-		return None
+		ubicacion = _reporter_location(user)
+		if not ubicacion:
+			return "1=0"
+		return f"`tabArticulo de Inventario`.`ubicacion` = {frappe.db.escape(ubicacion)}"
 	return _module_condition("Articulo de Inventario", _allowed_modules_for_read(user))
 
 
@@ -102,7 +105,12 @@ def article_has_permission(doc, ptype=None, user=None):
 	ptype = ptype or "read"
 	roles = _user_roles(user)
 	if REPORTER_ROLE in roles:
-		return ptype in {"read", "select", "print", "report"}
+		if ptype not in {"read", "select", "print", "report"}:
+			return False
+		ubicacion = _reporter_location(user)
+		if not doc or not ubicacion:
+			return bool(ubicacion)
+		return doc.ubicacion == ubicacion
 	return _has_inventory_module_permission(doc, ptype, user)
 
 
@@ -120,12 +128,17 @@ def alert_has_permission(doc, ptype=None, user=None):
 
 
 def user_has_permission(doc, ptype=None, user=None):
+	ptype = ptype or "read"
 	user = user or frappe.session.user
 	roles = _user_roles(user)
 	if roles & SYSTEM_ACCESS_ROLES:
 		return True
 	if INVENTORY_SUPERADMIN_ROLE in roles:
+		if ptype == "create":
+			return True
 		if not doc:
+			return True
+		if getattr(doc, "is_new", None) and doc.is_new():
 			return True
 		target_roles = set(frappe.get_roles(doc.name))
 		return bool(target_roles & INVENTORY_USER_ROLES) and not bool(target_roles & SYSTEM_ACCESS_ROLES)
@@ -151,3 +164,8 @@ def _has_inventory_module_permission(doc, ptype=None, user=None):
 		return bool(modules)
 
 	return doc_module in modules
+
+
+def _reporter_location(user=None):
+	user = user or frappe.session.user
+	return frappe.db.get_value("User", user, "inventario_ubicacion_asignada")

@@ -1,5 +1,7 @@
 import frappe
 import json
+from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+from frappe.utils.password import update_password
 from frappe.utils import cint
 
 
@@ -554,13 +556,40 @@ order by grupo, nombre_articulo
 			],
 			"query": """
 select
-  ubicacion as "Ubicacion:Link/Ubicacion:180",
-  nombre_articulo as "Articulo:Data:180",
-  count(name) as "Cantidad:Int:100"
+  a.ubicacion as "Ubicacion:Link/Ubicacion:180",
+  u.nombre_ubicacion as "Nombre ubicacion:Data:220",
+  count(a.name) as "Total articulos:Int:120",
+  sum(case when a.estado = 'Activo' then 1 else 0 end) as "Activos:Int:100",
+  sum(case when a.estado = 'Inactivo' then 1 else 0 end) as "Inactivos:Int:100"
 from `tabArticulo de Inventario`
-where modulo = 'TI'
-group by ubicacion, nombre_articulo
-order by ubicacion, nombre_articulo
+  a
+left join `tabUbicacion` u on u.name = a.ubicacion
+where a.modulo = 'TI'
+group by a.ubicacion, u.nombre_ubicacion
+order by u.nombre_ubicacion
+""",
+		},
+		{
+			"report_name": "Detalle TI por Tipo y Ubicacion",
+			"ref_doctype": "Articulo de Inventario",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin General",
+				"Revisor",
+				"System Manager",
+			],
+			"query": """
+select
+  a.ubicacion as "Ubicacion:Link/Ubicacion:180",
+  u.nombre_ubicacion as "Nombre ubicacion:Data:220",
+  a.nombre_articulo as "Articulo:Data:180",
+  count(a.name) as "Cantidad:Int:100"
+from `tabArticulo de Inventario` a
+left join `tabUbicacion` u on u.name = a.ubicacion
+where a.modulo = 'TI'
+group by a.ubicacion, u.nombre_ubicacion, a.nombre_articulo
+order by u.nombre_ubicacion, a.nombre_articulo
 """,
 		},
 		{
@@ -766,6 +795,10 @@ def configure_inventory_role_permissions():
 			"permlevel": 1,
 		},
 	}
+	user_reference_perms = {
+		"SuperAdministrador Inventario": _read_only_permission(select=1),
+		"System Manager": _full_permission(),
+	}
 
 	results = {}
 	for doctype, permissions in {
@@ -779,10 +812,212 @@ def configure_inventory_role_permissions():
 			results[doctype] = _apply_doctype_permissions(doctype, permissions)
 
 	results["User Permlevel 1"] = _apply_custom_docperms("User", user_role_management_perms)
+	for doctype in ("Role Profile", "Module Profile"):
+		if frappe.db.exists("DocType", doctype):
+			results[doctype] = _apply_doctype_permissions(doctype, user_reference_perms)
+	results["Role Profiles"] = create_inventory_role_profiles()
+	results["Reporter User Fields"] = configure_reporter_user_fields()
 
 	frappe.db.commit()
 	frappe.clear_cache()
 	return results
+
+
+def configure_reporter_user_fields():
+	"""Add User fields used to scope reportantes by module and location."""
+	fields = [
+		{
+			"fieldname": "inventario_reportante_section",
+			"label": "Inventario CEDHI",
+			"fieldtype": "Section Break",
+			"insert_after": "roles",
+			"collapsible": 1,
+		},
+		{
+			"fieldname": "inventario_modulo_asignado",
+			"label": "Modulo asignado",
+			"fieldtype": "Select",
+			"options": "\nTI\nGastronomia\nGeneral",
+			"insert_after": "inventario_reportante_section",
+		},
+		{
+			"fieldname": "inventario_ubicacion_asignada",
+			"label": "Ubicacion asignada",
+			"fieldtype": "Link",
+			"options": "Ubicacion",
+			"insert_after": "inventario_modulo_asignado",
+			"depends_on": 'eval:doc.inventario_modulo_asignado',
+		},
+	]
+	create_custom_fields({"User": fields}, update=True)
+	frappe.clear_cache(doctype="User")
+	return {"configured": [field["fieldname"] for field in fields]}
+
+
+def recreate_lab_computacion_reporter_user():
+	"""Recreate the lab reporting user used for MVP alert tests."""
+	return recreate_reporter_station_user(
+		email="lab.computacion01@cedhi.local",
+		full_name="Lab. Computacion 01",
+		modulo="TI",
+		ubicacion_label="Laboratorio 1",
+		remove_users=["profesor@cedhi.local", "lab.computacion01@cedhi.local"],
+	)
+
+
+def repair_lab_computacion_reporter_user():
+	"""Ensure the lab reporting user has the auxiliary records Frappe needs."""
+	return repair_reporter_station_user("lab.computacion01@cedhi.local")
+
+
+def repair_reporter_station_user(email):
+	"""Create auxiliary records required for a reporter user session."""
+	if not frappe.db.exists("User", email):
+		frappe.throw(f"No existe el usuario {email}.")
+
+	created = []
+	if not frappe.db.exists("Notification Settings", email):
+		frappe.get_doc(
+			{
+				"doctype": "Notification Settings",
+				"name": email,
+				"user": email,
+				"enabled": 1,
+				"enable_email_notifications": 1,
+				"enable_email_mention": 1,
+				"enable_email_assignment": 1,
+				"enable_email_threads_on_assigned_document": 1,
+				"enable_email_energy_point": 1,
+				"enable_email_share": 1,
+				"enable_email_event_reminders": 1,
+				"energy_points_system_notifications": 1,
+			}
+		).db_insert()
+		created.append("Notification Settings")
+
+	frappe.db.commit()
+	frappe.clear_cache(user=email)
+	return {"user": email, "created": created}
+
+
+def recreate_reporter_station_user(
+	email,
+	full_name,
+	modulo,
+	ubicacion_label,
+	password="Cedhi12345",
+	remove_users=None,
+):
+	"""Create a Reportante user assigned to one inventory location."""
+	remove_users = remove_users or []
+	for user in remove_users:
+		_delete_user_direct(user)
+
+	ubicacion = frappe.db.get_value(
+		"Ubicacion",
+		{"nombre_ubicacion": ubicacion_label, "modulo": modulo},
+		"name",
+	)
+	if not ubicacion:
+		frappe.throw(f"No se encontro la ubicacion {ubicacion_label} para el modulo {modulo}.")
+
+	first_name, *rest = full_name.split(" ", 1)
+	user = frappe.get_doc(
+		{
+			"doctype": "User",
+			"name": email,
+			"email": email,
+			"enabled": 1,
+			"first_name": first_name,
+			"last_name": rest[0] if rest else "",
+			"full_name": full_name,
+			"username": email.split("@")[0].replace(".", "_"),
+			"user_type": "System User",
+			"send_welcome_email": 0,
+			"role_profile_name": "Perfil Reportante",
+			"inventario_modulo_asignado": modulo,
+			"inventario_ubicacion_asignada": ubicacion,
+		}
+	)
+	user.db_insert()
+
+	frappe.get_doc(
+		{
+			"doctype": "Has Role",
+			"parent": email,
+			"parenttype": "User",
+			"parentfield": "roles",
+			"role": "Reportante",
+		}
+	).db_insert()
+
+	frappe.db.commit()
+	update_password(email, password)
+	repair_reporter_station_user(email)
+	frappe.db.commit()
+	frappe.clear_cache(user=email)
+
+	return {
+		"user": email,
+		"full_name": full_name,
+		"role": "Reportante",
+		"modulo": modulo,
+		"ubicacion": ubicacion_label,
+		"password": password,
+	}
+
+
+def _delete_user_direct(user):
+	"""Delete a local test user without triggering User hooks that need Redis."""
+	if not frappe.db.exists("User", user):
+		return
+
+	frappe.db.delete("Has Role", {"parent": user})
+	frappe.db.delete("DefaultValue", {"parent": user})
+	frappe.db.delete("User Permission", {"user": user})
+	frappe.db.delete("Notification Settings", {"name": user})
+	frappe.db.delete("__Auth", {"doctype": "User", "name": user})
+	frappe.db.delete("User", {"name": user})
+	frappe.db.commit()
+
+
+def create_inventory_role_profiles():
+	"""Create role profiles used by the User quick-entry dialog."""
+	profiles = {
+		"Perfil SuperAdministrador Inventario": ["SuperAdministrador Inventario"],
+		"Perfil Admin TI": ["Admin TI"],
+		"Perfil Admin Cocina": ["Admin Cocina"],
+		"Perfil Admin General": ["Admin General"],
+		"Perfil Revisor": ["Revisor"],
+		"Perfil Reportante": ["Reportante"],
+	}
+
+	created = []
+	updated = []
+	for profile_name, roles in profiles.items():
+		if frappe.db.exists("Role Profile", profile_name):
+			profile = frappe.get_doc("Role Profile", profile_name)
+			profile.roles = []
+			updated.append(profile_name)
+		else:
+			profile = frappe.get_doc(
+				{
+					"doctype": "Role Profile",
+					"role_profile": profile_name,
+				}
+			)
+			created.append(profile_name)
+
+		for role in roles:
+			profile.append("roles", {"role": role})
+
+		if profile.is_new():
+			profile.insert(ignore_permissions=True)
+		else:
+			profile.save(ignore_permissions=True)
+
+	frappe.db.commit()
+	return {"created": created, "updated": updated}
 
 
 def _full_permission(import_=0):
@@ -984,9 +1219,12 @@ def create_inventory_workspace():
 		},
 		{"id": "shortcut-articulos", "type": "shortcut", "data": {"shortcut_name": "Articulos", "col": 3}},
 		{"id": "shortcut-alertas", "type": "shortcut", "data": {"shortcut_name": "Alertas", "col": 3}},
+		{"id": "shortcut-ubicaciones", "type": "shortcut", "data": {"shortcut_name": "Ubicaciones", "col": 3}},
+		{"id": "shortcut-asignaciones", "type": "shortcut", "data": {"shortcut_name": "Asignaciones", "col": 3}},
 		{"id": "shortcut-resumen", "type": "shortcut", "data": {"shortcut_name": "Resumen por Modulo", "col": 3}},
 		{"id": "shortcut-stock", "type": "shortcut", "data": {"shortcut_name": "Stock Critico", "col": 3}},
 		{"id": "shortcut-ti", "type": "shortcut", "data": {"shortcut_name": "TI por Ubicacion", "col": 3}},
+		{"id": "shortcut-ti-detalle", "type": "shortcut", "data": {"shortcut_name": "Detalle TI", "col": 3}},
 		{"id": "shortcut-sin-stock", "type": "shortcut", "data": {"shortcut_name": "Sin Stock Critico", "col": 3}},
 	]
 
@@ -1006,6 +1244,20 @@ def create_inventory_workspace():
 			"color": "Orange",
 		},
 		{
+			"type": "DocType",
+			"link_to": "Ubicacion",
+			"doc_view": "List",
+			"label": "Ubicaciones",
+			"color": "Grey",
+		},
+		{
+			"type": "DocType",
+			"link_to": "Asignacion",
+			"doc_view": "List",
+			"label": "Asignaciones",
+			"color": "Grey",
+		},
+		{
 			"type": "Report",
 			"link_to": "Resumen Inventario por Modulo",
 			"label": "Resumen por Modulo",
@@ -1023,6 +1275,13 @@ def create_inventory_workspace():
 			"type": "Report",
 			"link_to": "Inventario TI por Ubicacion",
 			"label": "TI por Ubicacion",
+			"report_ref_doctype": "Articulo de Inventario",
+			"color": "Grey",
+		},
+		{
+			"type": "Report",
+			"link_to": "Detalle TI por Tipo y Ubicacion",
+			"label": "Detalle TI",
 			"report_ref_doctype": "Articulo de Inventario",
 			"color": "Grey",
 		},

@@ -240,6 +240,22 @@ Al crear una alerta, el sistema completa automaticamente:
 - `Modulo`
 - `Ubicacion`
 
+Los usuarios con rol `Reportante` deben tener configurado en su ficha de usuario:
+
+- `Modulo asignado`
+- `Ubicacion asignada`
+
+Esto permite representar PCs o usuarios de reporte ubicados en un laboratorio, cocina o ambiente especifico. Por ejemplo:
+
+```text
+profesor.lab01@cedhi.local
+Rol: Reportante
+Modulo asignado: TI
+Ubicacion asignada: Laboratorio 1
+```
+
+Con esa configuracion, el reportante solo puede seleccionar articulos de su ubicacion asignada al crear alertas.
+
 ## Flujo de trabajo con Git
 
 La rama compartida principal del proyecto es:
