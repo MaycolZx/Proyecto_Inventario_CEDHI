@@ -1079,6 +1079,13 @@ def configure_inventory_role_permissions():
 		"SuperAdministrador Inventario": _read_only_permission(select=1),
 		"System Manager": _full_permission(),
 	}
+	data_import_perms = {
+		"SuperAdministrador Inventario": _manager_permission(),
+		"Admin TI": _manager_permission(),
+		"Admin Cocina": _manager_permission(),
+		"Admin General": _manager_permission(),
+		"System Manager": _full_permission(),
+	}
 
 	results = {}
 	for doctype, permissions in {
@@ -1095,6 +1102,9 @@ def configure_inventory_role_permissions():
 	for doctype in ("Role Profile", "Module Profile"):
 		if frappe.db.exists("DocType", doctype):
 			results[doctype] = _apply_doctype_permissions(doctype, user_reference_perms)
+	for doctype in ("Data Import", "Data Import Log"):
+		if frappe.db.exists("DocType", doctype):
+			results[doctype] = _apply_doctype_permissions(doctype, data_import_perms)
 	results["Role Profiles"] = create_inventory_role_profiles()
 	results["Reporter User Fields"] = configure_reporter_user_fields()
 
