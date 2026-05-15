@@ -25,7 +25,7 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/inventario_cedhi/css/inventario_cedhi.css"
+app_include_css = "/assets/inventario_cedhi/css/inventario_cedhi.css"
 # app_include_js = "/assets/inventario_cedhi/js/inventario_cedhi.js"
 
 # include js, css files in header of web template
@@ -60,9 +60,14 @@ app_license = "mit"
 # home_page = "login"
 
 # website user home page (by Role)
-# role_home_page = {
-# 	"Role": "home_page"
-# }
+role_home_page = {
+	"SuperAdministrador Inventario": "Inventario CEDHI",
+	"Admin TI": "Inventario CEDHI",
+	"Admin Cocina": "Inventario CEDHI",
+	"Admin General": "Inventario CEDHI",
+	"Revisor": "Inventario CEDHI",
+	"Reportante": "Inventario CEDHI",
+}
 
 # Generators
 # ----------
@@ -120,12 +125,14 @@ app_license = "mit"
 permission_query_conditions = {
 	"Articulo de Inventario": "inventario_cedhi.permissions.article_query_conditions",
 	"Alerta de Inventario": "inventario_cedhi.permissions.alert_query_conditions",
+	"Movimiento de Inventario": "inventario_cedhi.permissions.article_query_conditions",
 	"User": "inventario_cedhi.permissions.user_query_conditions",
 }
 
 has_permission = {
 	"Articulo de Inventario": "inventario_cedhi.permissions.article_has_permission",
 	"Alerta de Inventario": "inventario_cedhi.permissions.alert_has_permission",
+	"Movimiento de Inventario": "inventario_cedhi.permissions.article_has_permission",
 	"User": "inventario_cedhi.permissions.user_has_permission",
 }
 
@@ -149,9 +156,16 @@ has_permission = {
 # 	}
 # }
 doc_events = {
+	"Articulo de Inventario": {
+		"before_insert": "inventario_cedhi.inventory_logic.set_internal_code",
+	},
 	"Alerta de Inventario": {
 		"before_insert": "inventario_cedhi.alerts.set_alert_defaults",
 		"validate": "inventario_cedhi.alerts.set_alert_defaults",
+	},
+	"Movimiento de Inventario": {
+		"on_submit": "inventario_cedhi.inventory_logic.update_stock_on_movement",
+		"on_cancel": "inventario_cedhi.inventory_logic.reverse_stock_on_cancel",
 	}
 }
 

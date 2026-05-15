@@ -17,9 +17,14 @@ def setup_inventory_mvp():
 	results["Import Traceability Fields"] = add_import_traceability_fields()
 	results["Module Form Rules"] = configure_module_specific_article_form()
 	results["Alert DocType"] = create_alerta_inventario_doctype()
+	results["Movimiento DocType"] = create_movimiento_inventario_doctype()
 	results["Role Permissions"] = configure_inventory_role_permissions()
 	results["List Views"] = configure_inventory_list_views()
 	results["Reports"] = create_basic_inventory_reports()
+	results["Number Cards"] = create_inventory_number_cards()
+	results["Charts"] = create_inventory_charts()
+	results["Client Scripts"] = create_inventory_client_scripts()
+	results["Initial Users"] = create_initial_users()
 	results["Workspace"] = create_inventory_workspace()
 	frappe.db.commit()
 	frappe.clear_cache()
@@ -181,7 +186,7 @@ def create_articulo_inventario_doctype():
 			"fieldname": "estado",
 			"label": "Estado",
 			"fieldtype": "Select",
-			"options": "Activo\nInactivo",
+			"options": "Activo\nDe baja\nEn reparación",
 			"default": "Activo",
 			"reqd": 1,
 			"in_list_view": 1,
@@ -265,16 +270,25 @@ def _create_or_update_core_doctype(doctype_name, fields, title_field):
 	doc.show_title_field_in_link = 1
 	doc.show_name_in_global_search = 1
 
-	existing = {df.fieldname for df in doc.fields}
+	existing = {df.fieldname: df for df in doc.fields}
 	added = []
+	updated = []
 	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
-	for field in fields:
-		if field["fieldname"] in existing:
+	for field_data in fields:
+		fieldname = field_data["fieldname"]
+		if fieldname in existing:
+			field = existing[fieldname]
+			for key, value in field_data.items():
+				if getattr(field, key, None) != value:
+					setattr(field, key, value)
+					if fieldname not in updated:
+						updated.append(fieldname)
 			continue
-		row = doc.append("fields", field)
+		
+		row = doc.append("fields", field_data)
 		row.idx = next_idx
 		next_idx += 1
-		added.append(field["fieldname"])
+		added.append(fieldname)
 
 	if created:
 		doc.insert(ignore_permissions=True)
@@ -282,7 +296,7 @@ def _create_or_update_core_doctype(doctype_name, fields, title_field):
 		doc.save(ignore_permissions=True)
 
 	frappe.clear_cache(doctype=doctype_name)
-	return {"created": created, "added_fields": added}
+	return {"created": created, "added_fields": added, "updated_fields": updated}
 
 
 def add_gastronomy_catalog_fields():
@@ -389,7 +403,7 @@ def configure_module_specific_article_form():
 		"unidad_medida": 'eval:doc.modulo=="Gastronomia"',
 		"pabellon": 'eval:doc.modulo=="General"',
 		"aula": 'eval:doc.modulo=="General"',
-		"motivo_cambio_estado": 'eval:doc.estado=="Inactivo"',
+		"motivo_cambio_estado": 'eval:doc.estado!="Activo"',
 	}
 
 	for field in doc.fields:
@@ -791,7 +805,7 @@ select
   modulo as "Modulo:Data:160",
   count(name) as "Total:Int:100",
   sum(case when estado = 'Activo' then 1 else 0 end) as "Activos:Int:100",
-  sum(case when estado = 'Inactivo' then 1 else 0 end) as "Inactivos:Int:100"
+  sum(case when estado != 'Activo' then 1 else 0 end) as "No Operativos:Int:120"
 from `tabArticulo de Inventario`
 group by modulo
 order by modulo
@@ -840,7 +854,7 @@ select
   u.nombre_ubicacion as "Nombre ubicacion:Data:220",
   count(a.name) as "Total articulos:Int:120",
   sum(case when a.estado = 'Activo' then 1 else 0 end) as "Activos:Int:100",
-  sum(case when a.estado = 'Inactivo' then 1 else 0 end) as "Inactivos:Int:100"
+  sum(case when a.estado != 'Activo' then 1 else 0 end) as "No Operativos:Int:120"
 from `tabArticulo de Inventario`
   a
 left join `tabUbicacion` u on u.name = a.ubicacion
@@ -896,6 +910,20 @@ where modulo = 'Gastronomia'
 order by grupo, nombre_articulo
 """,
 		},
+		{
+			"report_name": "Reporte Maestro de Inventario",
+			"ref_doctype": "Articulo de Inventario",
+			"is_standard": "Yes",
+			"report_type": "Script Report",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin Cocina",
+				"Admin General",
+				"Revisor",
+				"System Manager",
+			],
+		},
 	]
 
 	created = []
@@ -905,12 +933,14 @@ order by grupo, nombre_articulo
 		payload = {
 			"report_name": item["report_name"],
 			"ref_doctype": item["ref_doctype"],
-			"is_standard": "No",
+			"is_standard": item.get("is_standard", "No"),
 			"module": module,
-			"report_type": "Query Report",
-			"query": item["query"].strip(),
+			"report_type": item.get("report_type", "Query Report"),
 			"disabled": 0,
 		}
+		if item.get("query"):
+			payload["query"] = item["query"].strip()
+
 		if name:
 			report = frappe.get_doc("Report", name)
 			report.update(payload)
@@ -1007,6 +1037,107 @@ def apply_default_gastronomy_stock_critical(default_value=10):
 	return {"updated": len(items), "stock_critico": default_value}
 
 
+def create_movimiento_inventario_doctype():
+	"""Create the DocType for inventory transactions (Kardex)."""
+	doctype_name = "Movimiento de Inventario"
+	module = INVENTORY_MODULE
+
+	if frappe.db.exists("DocType", doctype_name):
+		return {"created": False, "doctype": doctype_name}
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "DocType",
+			"name": doctype_name,
+			"module": module,
+			"custom": 1,
+			"allow_import": 1,
+			"autoname": "format:MOV-.YYYY.-.#####",
+			"is_submittable": 1,
+			"fields": [
+				{
+					"fieldname": "datos_movimiento_section",
+					"label": "Datos del Movimiento",
+					"fieldtype": "Section Break",
+				},
+				{
+					"fieldname": "articulo",
+					"label": "Articulo",
+					"fieldtype": "Link",
+					"options": "Articulo de Inventario",
+					"reqd": 1,
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "tipo_movimiento",
+					"label": "Tipo de Movimiento",
+					"fieldtype": "Select",
+					"options": "Entrada\nSalida",
+					"reqd": 1,
+					"in_list_view": 1,
+					"in_standard_filter": 1,
+				},
+				{
+					"fieldname": "cantidad",
+					"label": "Cantidad",
+					"fieldtype": "Float",
+					"reqd": 1,
+					"in_list_view": 1,
+				},
+				{
+					"fieldname": "fecha",
+					"label": "Fecha",
+					"fieldtype": "Date",
+					"default": "Today",
+					"reqd": 1,
+					"in_list_view": 1,
+				},
+				{
+					"fieldname": "responsable",
+					"label": "Responsable",
+					"fieldtype": "Link",
+					"options": "User",
+					"default": "Session User",
+				},
+				{
+					"fieldname": "motivo_section",
+					"label": "Motivo",
+					"fieldtype": "Section Break",
+				},
+				{
+					"fieldname": "motivo",
+					"label": "Motivo / Referencia",
+					"fieldtype": "Small Text",
+					"reqd": 1,
+				},
+			],
+			"permissions": [
+				{
+					"role": "System Manager",
+					"read": 1,
+					"write": 1,
+					"create": 1,
+					"delete": 1,
+					"submit": 1,
+					"cancel": 1,
+					"amend": 1,
+					"report": 1,
+					"export": 1,
+					"import": 1,
+					"print": 1,
+					"email": 1,
+				}
+			],
+		}
+	)
+	doc.insert(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache(doctype=doctype_name)
+
+	return {"created": True, "doctype": doctype_name}
+
+
 def configure_inventory_role_permissions():
 	"""Configure the PRD roles and base permissions for the inventory MVP."""
 	roles = [
@@ -1075,6 +1206,15 @@ def configure_inventory_role_permissions():
 			"permlevel": 1,
 		},
 	}
+	movimiento_perms = {
+		"SuperAdministrador Inventario": _full_permission(submit=1, cancel=1),
+		"Admin TI": _manager_permission(submit=1, cancel=1),
+		"Admin Cocina": _manager_permission(submit=1, cancel=1),
+		"Admin General": _manager_permission(submit=1, cancel=1),
+		"Revisor": _read_only_permission(),
+		"Reportante": _read_only_permission(select=1),
+		"System Manager": _full_permission(submit=1, cancel=1),
+	}
 	user_reference_perms = {
 		"SuperAdministrador Inventario": _read_only_permission(select=1),
 		"System Manager": _full_permission(),
@@ -1091,9 +1231,12 @@ def configure_inventory_role_permissions():
 	for doctype, permissions in {
 		"Articulo de Inventario": article_perms,
 		"Alerta de Inventario": alert_perms,
+		"Movimiento de Inventario": movimiento_perms,
 		"Ubicacion": reference_perms,
 		"Asignacion": reference_perms,
 		"User": user_perms,
+		"Data Import": data_import_perms,
+		"Data Import Log": data_import_perms,
 	}.items():
 		if frappe.db.exists("DocType", doctype):
 			results[doctype] = _apply_doctype_permissions(doctype, permissions)
@@ -1314,12 +1457,14 @@ def create_inventory_role_profiles():
 	return {"created": created, "updated": updated}
 
 
-def _full_permission(import_=0):
+def _full_permission(import_=0, submit=0, cancel=0):
 	return {
 		"read": 1,
 		"write": 1,
 		"create": 1,
 		"delete": 1,
+		"submit": submit,
+		"cancel": cancel,
 		"report": 1,
 		"export": 1,
 		"import": import_,
@@ -1330,12 +1475,14 @@ def _full_permission(import_=0):
 	}
 
 
-def _manager_permission(import_=0):
+def _manager_permission(import_=0, submit=0, cancel=0):
 	return {
 		"read": 1,
 		"write": 1,
 		"create": 1,
 		"delete": 1,
+		"submit": submit,
+		"cancel": cancel,
 		"report": 1,
 		"export": 1,
 		"import": import_,
@@ -1497,95 +1644,268 @@ def get_inventory_permission_summary():
 	return summary
 
 
+def create_inventory_number_cards():
+	"""Create Number Cards for the inventory dashboard."""
+	cards = [
+		{
+			"label": "Total Articulos",
+			"document_type": "Articulo de Inventario",
+			"function": "Count",
+		},
+		{
+			"label": "Alertas Pendientes",
+			"document_type": "Alerta de Inventario",
+			"function": "Count",
+			"filters_json": json.dumps([["Alerta de Inventario", "estado_alerta", "=", "Pendiente"]]),
+		},
+	]
+
+	results = []
+	for card_data in cards:
+		if not frappe.db.exists("Number Card", card_data["label"]):
+			card = frappe.get_doc(
+				{
+					"doctype": "Number Card",
+					"is_standard": 1,
+					"module": INVENTORY_MODULE,
+					**card_data,
+				}
+			)
+			card.insert(ignore_permissions=True)
+			results.append(card.name)
+		else:
+			results.append(card_data["label"])
+
+	return results
+
+
+def create_inventory_charts():
+	"""Create Dashboard Charts for the inventory workspace."""
+	charts = [
+		{
+			"chart_name": "Estado de Activos",
+			"chart_type": "Group By",
+			"document_type": "Articulo de Inventario",
+			"group_by_based_on": "estado",
+			"group_by_type": "Count",
+			"type": "Donut",
+			"module": INVENTORY_MODULE,
+		},
+		{
+			"chart_name": "Distribución por Módulo",
+			"chart_type": "Group By",
+			"document_type": "Articulo de Inventario",
+			"group_by_based_on": "modulo",
+			"group_by_type": "Count",
+			"type": "Bar",
+			"module": INVENTORY_MODULE,
+		},
+	]
+
+	results = []
+	for chart_data in charts:
+		if not frappe.db.exists("Dashboard Chart", chart_data["chart_name"]):
+			chart = frappe.get_doc(
+				{
+					"doctype": "Dashboard Chart",
+					"is_standard": 0,
+					"filters_json": json.dumps({}),
+					**chart_data,
+				}
+			)
+			chart.insert(ignore_permissions=True)
+			results.append(chart.name)
+		else:
+			results.append(chart_data["chart_name"])
+	return results
+
+
+def create_inventory_client_scripts():
+	"""Create Client Scripts to enforce PRD logic and improve UX."""
+	scripts = [
+		{
+			"dt": "Articulo de Inventario",
+			"name": "Articulo de Inventario - PRD Logic",
+			"script": """
+frappe.ui.form.on('Articulo de Inventario', {
+    refresh: function(frm) {
+        // RF-TI-01: Brand/Model mandatory for TI
+        frm.toggle_reqd('marca', frm.doc.modulo === 'TI');
+        frm.toggle_reqd('modelo', frm.doc.modulo === 'TI');
+        
+        // RF-GE-01: Pabellon/Aula visibility for General
+        let is_general = frm.doc.modulo === 'General' || frm.doc.modulo === 'TI';
+        frm.toggle_display(['pabellon', 'aula'], is_general);
+        
+        // RF-GA-03: Visual feedback for Critical Stock
+        if (frm.doc.stock_actual <= frm.doc.stock_critico && frm.doc.stock_critico > 0) {
+            frm.set_df_property('stock_actual', 'description', 
+                '<b style="color: #e74c3c;">⚠️ STOCK CRÍTICO: El inventario está por debajo del límite definido.</b>');
+        } else {
+            frm.set_df_property('stock_actual', 'description', '');
+        }
+
+        // Personalidad: Color de fondo según módulo
+        if (frm.doc.modulo === 'TI') {
+            frm.set_df_property('datos_generales_section', 'label', '💻 Datos Técnicos TI');
+        } else if (frm.doc.modulo === 'Gastronomia') {
+            frm.set_df_property('datos_generales_section', 'label', '🍳 Control de Gastronomía');
+        }
+    },
+    modulo: function(frm) {
+        frm.trigger('refresh');
+    },
+    estado: function(frm) {
+        // RF-C03: Mandatory reason for status change
+        if (frm.doc.estado !== 'Activo') {
+            frm.set_df_property('motivo_cambio_estado', 'reqd', 1);
+            frappe.msgprint(__('Por favor, especifique el motivo del cambio de estado (Baja/Reparación) para cumplir con la trazabilidad (RF-C03).'));
+        } else {
+            frm.set_df_property('motivo_cambio_estado', 'reqd', 0);
+        }
+    }
+});
+""",
+		}
+	]
+
+	results = []
+	for script_data in scripts:
+		if not frappe.db.exists("Client Script", script_data["name"]):
+			script = frappe.get_doc(
+				{
+					"doctype": "Client Script",
+					"module": INVENTORY_MODULE,
+					"enabled": 1,
+					**script_data,
+				}
+			)
+			script.insert(ignore_permissions=True)
+			results.append(script.name)
+		else:
+			script = frappe.get_doc("Client Script", script_data["name"])
+			script.script = script_data["script"]
+			script.save(ignore_permissions=True)
+			results.append(script.name)
+	return results
+
+
+def create_initial_users():
+	"""Create the initial users defined in the PRD."""
+	users_to_create = [
+		{
+			"email": "andree@cedhi.local",
+			"first_name": "Andree",
+			"role_profile_name": "Perfil SuperAdministrador Inventario",
+			"additional_roles": ["Admin TI", "System Manager", "Desk User"],
+		},
+		{
+			"email": "luis@cedhi.local",
+			"first_name": "Chef Luis",
+			"role_profile_name": "Perfil Admin Cocina",
+			"additional_roles": ["Desk User"],
+		},
+		{
+			"email": "angie@cedhi.local",
+			"first_name": "Angie",
+			"role_profile_name": "Perfil Admin Cocina",
+			"additional_roles": ["Desk User"],
+		},
+		{
+			"email": "manuel@cedhi.local",
+			"first_name": "Sr. Manuel",
+			"role_profile_name": "Perfil Admin General",
+			"additional_roles": ["Desk User"],
+		},
+	]
+
+	results = []
+	for user_data in users_to_create:
+		if not frappe.db.exists("User", user_data["email"]):
+			user = frappe.get_doc(
+				{
+					"doctype": "User",
+					"email": user_data["email"],
+					"first_name": user_data["first_name"],
+					"send_welcome_email": 0,
+					"role_profile_name": user_data["role_profile_name"],
+					"user_type": "System User",
+				}
+			)
+			user.insert(ignore_permissions=True)
+			
+			if user_data.get("additional_roles"):
+				for role in user_data["additional_roles"]:
+					if not any(r.role == role for r in user.roles):
+						user.append("roles", {"role": role})
+				user.save(ignore_permissions=True)
+			# Set a random password to avoid issues, though Google Auth is preferred
+			update_password(user.name, "cedhi123")
+			results.append({"email": user_data["email"], "status": "created"})
+		else:
+			user = frappe.get_doc("User", user_data["email"])
+			updated = False
+			if user.role_profile_name != user_data["role_profile_name"]:
+				user.role_profile_name = user_data["role_profile_name"]
+				updated = True
+			
+			if user_data.get("additional_roles"):
+				for role in user_data["additional_roles"]:
+					if not any(r.role == role for r in user.roles):
+						user.append("roles", {"role": role})
+						updated = True
+			
+			if updated:
+				user.save(ignore_permissions=True)
+				results.append({"email": user_data["email"], "status": "updated"})
+			else:
+				results.append({"email": user_data["email"], "status": "exists"})
+
+	return results
+
+
 def create_inventory_workspace():
 	"""Create a visible workspace with shortcuts for the inventory MVP."""
 	module = INVENTORY_MODULE
 	name = "Inventario CEDHI"
 
+	# Define Content structure (The Layout)
 	content = [
-		{
-			"id": "inventario-header",
-			"type": "header",
-			"data": {
-				"text": '<span style="font-size: 18px;"><b>Sistema de Inventario CEDHI</b></span>',
-				"col": 12,
-			},
-		},
-		{"id": "shortcut-articulos", "type": "shortcut", "data": {"shortcut_name": "Articulos", "col": 3}},
-		{"id": "shortcut-alertas", "type": "shortcut", "data": {"shortcut_name": "Alertas", "col": 3}},
-		{"id": "shortcut-ubicaciones", "type": "shortcut", "data": {"shortcut_name": "Ubicaciones", "col": 3}},
-		{"id": "shortcut-asignaciones", "type": "shortcut", "data": {"shortcut_name": "Asignaciones", "col": 3}},
-		{"id": "shortcut-resumen", "type": "shortcut", "data": {"shortcut_name": "Resumen por Modulo", "col": 3}},
-		{"id": "shortcut-stock", "type": "shortcut", "data": {"shortcut_name": "Stock Critico", "col": 3}},
-		{"id": "shortcut-ti", "type": "shortcut", "data": {"shortcut_name": "TI por Ubicacion", "col": 3}},
-		{"id": "shortcut-ti-detalle", "type": "shortcut", "data": {"shortcut_name": "Detalle TI", "col": 3}},
-		{"id": "shortcut-sin-stock", "type": "shortcut", "data": {"shortcut_name": "Sin Stock Critico", "col": 3}},
+		{"id": "hero", "type": "header", "data": {"text": '<div class="hero-banner"><h1>Inventario CEDHI</h1><p>Gestión inteligente de activos y suministros.</p></div>', "col": 12}},
+		{"id": "mc1", "type": "number_card", "data": {"number_card_name": "Total Articulos", "col": 6}},
+		{"id": "mc2", "type": "number_card", "data": {"number_card_name": "Alertas Pendientes", "col": 6}},
+		{"id": "s1", "type": "spacer", "data": {"col": 12}},
+		{"id": "sh1", "type": "shortcut", "data": {"shortcut_name": "REPORTE MAESTRO (EXCEL)", "col": 12}},
+		{"id": "s2", "type": "spacer", "data": {"col": 12}},
+		{"id": "c1", "type": "card", "data": {"card_name": "Operaciones", "col": 4}},
+		{"id": "c2", "type": "card", "data": {"card_name": "Reportes", "col": 4}},
+		{"id": "c3", "type": "card", "data": {"card_name": "Configuración", "col": 4}},
+		{"id": "ch1", "type": "chart", "data": {"chart_name": "Estado de Activos", "col": 12}},
+	]
+
+	# Define Links (The Groups)
+	links = [
+		# Operaciones
+		{"label": "Catálogo Maestro", "link_to": "Articulo de Inventario", "link_type": "DocType", "type": "Link", "group": "Operaciones"},
+		{"label": "Kardex Digital", "link_to": "Movimiento de Inventario", "link_type": "DocType", "type": "Link", "group": "Operaciones"},
+		{"label": "Incidencias", "link_to": "Alerta de Inventario", "link_type": "DocType", "type": "Link", "group": "Operaciones"},
+		# Reportes
+		{"label": "Reporte Maestro (Excel)", "link_to": "Reporte Maestro de Inventario", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		{"label": "Stock Crítico", "link_to": "Stock Critico Gastronomia", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		{"label": "Resumen por Área", "link_to": "Resumen Inventario por Modulo", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		# Configuración
+		{"label": "Espacios Físicos", "link_to": "Ubicacion", "link_type": "DocType", "type": "Link", "group": "Configuración"},
+		{"label": "Importación Masiva", "link_to": "Data Import", "link_type": "DocType", "type": "Link", "group": "Configuración"},
+		{"label": "Gestión de Usuarios", "link_to": "User", "link_type": "DocType", "type": "Link", "group": "Configuración"},
 	]
 
 	shortcuts = [
 		{
-			"type": "DocType",
-			"link_to": "Articulo de Inventario",
-			"doc_view": "List",
-			"label": "Articulos",
-			"color": "Blue",
-		},
-		{
-			"type": "DocType",
-			"link_to": "Alerta de Inventario",
-			"doc_view": "List",
-			"label": "Alertas",
-			"color": "Orange",
-		},
-		{
-			"type": "DocType",
-			"link_to": "Ubicacion",
-			"doc_view": "List",
-			"label": "Ubicaciones",
-			"color": "Grey",
-		},
-		{
-			"type": "DocType",
-			"link_to": "Asignacion",
-			"doc_view": "List",
-			"label": "Asignaciones",
-			"color": "Grey",
-		},
-		{
 			"type": "Report",
-			"link_to": "Resumen Inventario por Modulo",
-			"label": "Resumen por Modulo",
-			"report_ref_doctype": "Articulo de Inventario",
+			"link_to": "Reporte Maestro de Inventario",
+			"label": "REPORTE MAESTRO (EXCEL)",
 			"color": "Green",
-		},
-		{
-			"type": "Report",
-			"link_to": "Stock Critico Gastronomia",
-			"label": "Stock Critico",
-			"report_ref_doctype": "Articulo de Inventario",
-			"color": "Red",
-		},
-		{
-			"type": "Report",
-			"link_to": "Inventario TI por Ubicacion",
-			"label": "TI por Ubicacion",
-			"report_ref_doctype": "Articulo de Inventario",
-			"color": "Grey",
-		},
-		{
-			"type": "Report",
-			"link_to": "Detalle TI por Tipo y Ubicacion",
-			"label": "Detalle TI",
-			"report_ref_doctype": "Articulo de Inventario",
-			"color": "Grey",
-		},
-		{
-			"type": "Report",
-			"link_to": "Gastronomia sin Stock Critico",
-			"label": "Sin Stock Critico",
-			"report_ref_doctype": "Articulo de Inventario",
-			"color": "Orange",
-		},
+		}
 	]
 
 	roles = [
@@ -1601,6 +1921,7 @@ def create_inventory_workspace():
 	if frappe.db.exists("Workspace", name):
 		workspace = frappe.get_doc("Workspace", name)
 		workspace.shortcuts = []
+		workspace.links = []
 		workspace.roles = []
 		created = False
 	else:
@@ -1616,11 +1937,12 @@ def create_inventory_workspace():
 			"indicator_color": "blue",
 			"public": 1,
 			"is_hidden": 0,
-			"hide_custom": 0,
 			"content": json.dumps(content),
 		}
 	)
 
+	for link in links:
+		workspace.append("links", link)
 	for shortcut in shortcuts:
 		workspace.append("shortcuts", shortcut)
 	for role in roles:
