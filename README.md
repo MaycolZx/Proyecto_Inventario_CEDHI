@@ -64,6 +64,57 @@ bench --site inventario.local install-app erpnext
 bench --site inventario.local install-app inventario_cedhi
 ```
 
+## Instalcion por medio de Dockerfile
+
+Construimos y levantamos el entorno:
+
+```
+cd ./docker_setup/
+docker compose up -d --build
+```
+
+Instalamos la base de datos:
+
+```
+docker compose exec backend bench new-site inventario.localhost --mariadb-root-password admin --admin-password admin
+docker compose exec backend bench --site inventario.localhost install-app inventario_cedhi
+```
+
+### Flujo de trabajo para hacer pull y push
+
+Para no tener que reconstruir toda la imagen cuando alguien haga un cambio en el repositorio solo deben de ejecutar el siguiente comando:
+
+```
+docker compose exec backend bash -c "cd apps/inventario_cedhi && git pull origin main"
+```
+
+Si se crearon nuevas tablas en la base de datos(nuevos docTypes), debes de sincronizar tu base de datos local.
+
+```
+docker compose exec backend bench --site inventario.localhost migrate
+```
+
+Para limpiar cache para ver los cambios web:
+
+```
+docker compose exec backend bench --site inventario.localhost clear-cache
+```
+
+En caso de realizar algun nuevo cambio, pueden entrar al bash del contenedor:
+
+```
+docker compose exec -it backend bash
+cd apps/inventario_cedhi
+```
+
+Ejemplo:
+
+```
+git add .
+git commit -m "Agregado modulo de reportes"
+git push origin mi-rama
+```
+
 ## Configuracion inicial del MVP
 
 Ejecutar este comando desde la raiz del bench:
