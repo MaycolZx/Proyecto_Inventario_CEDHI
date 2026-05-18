@@ -80,6 +80,8 @@ docker compose exec backend bench new-site inventario.localhost --mariadb-root-p
 docker compose exec backend bench --site inventario.localhost install-app inventario_cedhi
 ```
 
+Luego en tu navegador ingresa a "http://inventario.localhost:8080"
+
 ### Flujo de trabajo para hacer pull y push
 
 Para no tener que reconstruir toda la imagen cuando alguien haga un cambio en el repositorio solo deben de ejecutar el siguiente comando:
