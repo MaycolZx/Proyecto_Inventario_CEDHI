@@ -1,0 +1,140 @@
+/*
+   Inventario CEDHI - mobile and table helpers.
+   This file intentionally avoids global form-control styles.
+*/
+
+:root {
+    --cedhi-border: #e5e7eb;
+}
+
+.hero-banner {
+    padding: 6px 0 12px;
+}
+
+.cedhi-mobile-back {
+    display: none;
+}
+
+.hero-banner h1 {
+    font-size: 28px;
+    line-height: 1.15;
+    letter-spacing: 0;
+    margin: 0 0 6px;
+}
+
+.hero-banner p {
+    font-size: 15px;
+    line-height: 1.45;
+    margin: 0;
+}
+
+.standard-sidebar,
+.layout-side-section,
+.desk-sidebar,
+.list-sidebar {
+    overflow-y: auto;
+}
+
+.standard-sidebar .sidebar-item-label,
+.desk-sidebar .sidebar-item-label,
+.list-sidebar .sidebar-item-label {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+}
+
+.list-view-container,
+.frappe-list,
+.report-wrapper,
+.query-report,
+.result,
+.datatable,
+.dt-scrollable,
+.page-form,
+.list-filters {
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.dt-row,
+.dt-header,
+.list-row {
+    min-width: max-content;
+}
+
+@media (max-width: 768px) {
+    .cedhi-mobile-back {
+        position: fixed;
+        left: 12px;
+        bottom: 14px;
+        z-index: 1050;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 34px;
+        padding: 7px 12px;
+        border: 1px solid var(--cedhi-border);
+        border-radius: 999px;
+        background: #ffffff;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+        font-weight: 600;
+    }
+
+    .hero-banner h1 {
+        font-size: 24px;
+    }
+
+    .hero-banner p {
+        font-size: 14px;
+    }
+
+    .page-content,
+    .layout-main-section,
+    .layout-main-section-wrapper {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .layout-side-section,
+    .standard-sidebar {
+        max-height: 42vh;
+    }
+
+    .layout-side-section {
+        margin-bottom: 12px;
+        border-bottom: 1px solid var(--cedhi-border);
+        padding-bottom: 8px;
+    }
+
+    .list-view-container,
+    .frappe-list,
+    .report-wrapper,
+    .query-report,
+    .result,
+    .datatable,
+    .dt-scrollable,
+    .page-form,
+    .list-filters {
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .form-sidebar,
+    .form-assignments,
+    .form-attachments,
+    .form-tags,
+    .form-shared,
+    .liked-by,
+    .followed-by {
+        display: none;
+    }
+}
+
+@media (max-width: 480px) {
+    .hero-banner h1 {
+        font-size: 22px;
+    }
+
+    .hero-banner p {
+        font-size: 13px;
+    }
+}

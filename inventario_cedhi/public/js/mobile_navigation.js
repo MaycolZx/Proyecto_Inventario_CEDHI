@@ -1,0 +1,145 @@
+(function () {
+    const MOBILE_QUERY = "(max-width: 1024px)";
+
+    document.documentElement.dataset.cedhiMobileNavigation = "loaded";
+    window.cedhi_mobile_navigation = window.cedhi_mobile_navigation || {};
+
+    function isMobile() {
+        const visualWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+        return (
+            window.matchMedia(MOBILE_QUERY).matches
+            || window.innerWidth <= 1024
+            || document.documentElement.clientWidth <= 1024
+            || visualWidth <= 1024
+        );
+    }
+
+    function shouldShowBackButton() {
+        const path = window.location.pathname.toLowerCase();
+        if (!path.startsWith("/app")) {
+            return false;
+        }
+
+        return !["/app", "/app/home"].includes(path);
+    }
+
+    function goBack() {
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
+        }
+
+        if (window.frappe && frappe.set_route) {
+            frappe.set_route("Workspaces", "Inventario CEDHI");
+        }
+    }
+
+    function applyButtonStyles(button) {
+        const styles = {
+            position: "fixed",
+            left: "12px",
+            bottom: "14px",
+            zIndex: "2147483000",
+            display: "inline-flex",
+            visibility: "visible",
+            opacity: "1",
+            alignItems: "center",
+            justifyContent: "center",
+            minHeight: "34px",
+            padding: "7px 12px",
+            border: "1px solid #e5e7eb",
+            borderRadius: "999px",
+            background: "#ffffff",
+            boxShadow: "0 8px 18px rgba(15, 23, 42, 0.18)",
+            color: "#111827",
+            fontWeight: "600",
+            pointerEvents: "auto",
+        };
+        Object.entries(styles).forEach(([property, value]) => {
+            button.style.setProperty(property, value, "important");
+        });
+    }
+
+    function ensureBackButton() {
+        let existingButton = document.querySelector(".cedhi-mobile-back");
+
+        if (!isMobile() || !shouldShowBackButton()) {
+            if (existingButton) {
+                existingButton.remove();
+            }
+            return;
+        }
+
+        if (existingButton) {
+            applyButtonStyles(existingButton);
+            return;
+        }
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-default btn-sm cedhi-mobile-back";
+        button.textContent = "Volver";
+        button.setAttribute("aria-label", "Volver a la vista anterior");
+        applyButtonStyles(button);
+        button.addEventListener("click", goBack);
+
+        document.body.appendChild(button);
+    }
+
+    function scheduleMobileBackButton() {
+        window.setTimeout(ensureBackButton, 100);
+        window.setTimeout(ensureBackButton, 350);
+        window.setTimeout(ensureBackButton, 900);
+    }
+
+    function hookHistoryMethod(methodName) {
+        const originalMethod = window.history[methodName];
+        if (!originalMethod || originalMethod.cedhiHooked) {
+            return;
+        }
+
+        window.history[methodName] = function () {
+            const result = originalMethod.apply(this, arguments);
+            scheduleMobileBackButton();
+            return result;
+        };
+        window.history[methodName].cedhiHooked = true;
+    }
+
+    window.cedhi_mobile_navigation.ensure = ensureBackButton;
+    scheduleMobileBackButton();
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", scheduleMobileBackButton);
+    }
+
+    window.addEventListener("load", scheduleMobileBackButton);
+    window.addEventListener("hashchange", scheduleMobileBackButton);
+    window.addEventListener("popstate", scheduleMobileBackButton);
+    window.addEventListener("resize", scheduleMobileBackButton);
+    window.addEventListener("focus", scheduleMobileBackButton);
+    window.addEventListener("pageshow", scheduleMobileBackButton);
+    document.addEventListener("visibilitychange", scheduleMobileBackButton);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", scheduleMobileBackButton);
+    }
+
+    if (window.frappe && frappe.router && typeof frappe.router.on === "function") {
+        frappe.router.on("change", scheduleMobileBackButton);
+    }
+
+    hookHistoryMethod("pushState");
+    hookHistoryMethod("replaceState");
+
+    if (!window.cedhi_mobile_navigation.observer && document.body) {
+        window.cedhi_mobile_navigation.observer = new MutationObserver(scheduleMobileBackButton);
+        window.cedhi_mobile_navigation.observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+        });
+    }
+
+    if (!window.cedhi_mobile_navigation.interval) {
+        window.cedhi_mobile_navigation.interval = window.setInterval(ensureBackButton, 800);
+    }
+})();

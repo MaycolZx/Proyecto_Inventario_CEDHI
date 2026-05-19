@@ -1830,6 +1830,155 @@ def create_inventory_charts():
 
 def create_inventory_client_scripts():
 	"""Create Client Scripts to enforce PRD logic and improve UX."""
+	mobile_navigation_helper = """
+window.cedhi_mobile_navigation = window.cedhi_mobile_navigation || {};
+window.cedhi_mobile_navigation.applyStyles = function(button) {
+    const styles = {
+        position: "fixed",
+        left: "12px",
+        bottom: "14px",
+        zIndex: "2147483000",
+        display: "inline-flex",
+        visibility: "visible",
+        opacity: "1",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "34px",
+        padding: "7px 12px",
+        border: "1px solid #e5e7eb",
+        borderRadius: "999px",
+        background: "#ffffff",
+        boxShadow: "0 8px 18px rgba(15, 23, 42, 0.18)",
+        color: "#111827",
+        fontWeight: "600",
+        pointerEvents: "auto",
+    };
+    Object.entries(styles).forEach(([property, value]) => {
+        button.style.setProperty(property, value, "important");
+    });
+};
+window.cedhi_mobile_navigation.ensure = function() {
+    const mobileQuery = "(max-width: 1024px)";
+    const path = window.location.pathname.toLowerCase();
+    const visualWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    const isMobile = window.matchMedia(mobileQuery).matches
+        || window.innerWidth <= 1024
+        || document.documentElement.clientWidth <= 1024
+        || visualWidth <= 1024;
+    const shouldShow = isMobile
+        && path.startsWith("/app")
+        && !["/app", "/app/home"].includes(path);
+
+    if (!document.getElementById("cedhi-mobile-navigation-style")) {
+        const style = document.createElement("style");
+        style.id = "cedhi-mobile-navigation-style";
+        style.textContent = `
+            .cedhi-mobile-back { display: none; }
+            @media (max-width: 1024px) {
+                .cedhi-mobile-back {
+                    position: fixed;
+                    left: 12px;
+                    bottom: 14px;
+                    z-index: 1050;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 34px;
+                    padding: 7px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 999px;
+                    background: #ffffff;
+                    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+                    font-weight: 600;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const existingButton = document.querySelector(".cedhi-mobile-back");
+    if (!shouldShow) {
+        if (existingButton) {
+            existingButton.remove();
+        }
+        return;
+    }
+
+    if (existingButton) {
+        window.cedhi_mobile_navigation.applyStyles(existingButton);
+        return;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-default btn-sm cedhi-mobile-back";
+    button.textContent = "Volver";
+    button.setAttribute("aria-label", "Volver a la vista anterior");
+    window.cedhi_mobile_navigation.applyStyles(button);
+    button.addEventListener("click", function() {
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
+        }
+        if (window.frappe && frappe.set_route) {
+            frappe.set_route("Workspaces", "Inventario CEDHI");
+        }
+    });
+
+    document.body.appendChild(button);
+};
+window.cedhi_mobile_navigation.ensure();
+window.setTimeout(window.cedhi_mobile_navigation.ensure, 150);
+window.setTimeout(window.cedhi_mobile_navigation.ensure, 600);
+window.addEventListener("resize", window.cedhi_mobile_navigation.ensure);
+window.addEventListener("focus", window.cedhi_mobile_navigation.ensure);
+window.addEventListener("pageshow", window.cedhi_mobile_navigation.ensure);
+document.addEventListener("visibilitychange", window.cedhi_mobile_navigation.ensure);
+if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", window.cedhi_mobile_navigation.ensure);
+}
+if (window.frappe && frappe.router && typeof frappe.router.on === "function" && !window.cedhi_mobile_navigation.routerHooked) {
+    frappe.router.on("change", function() {
+        window.setTimeout(window.cedhi_mobile_navigation.ensure, 100);
+        window.setTimeout(window.cedhi_mobile_navigation.ensure, 500);
+    });
+    window.cedhi_mobile_navigation.routerHooked = true;
+}
+if (!window.cedhi_mobile_navigation.historyHooked) {
+    ["pushState", "replaceState"].forEach(function(methodName) {
+        const originalMethod = window.history[methodName];
+        if (!originalMethod) {
+            return;
+        }
+        window.history[methodName] = function() {
+            const result = originalMethod.apply(this, arguments);
+            window.setTimeout(window.cedhi_mobile_navigation.ensure, 100);
+            window.setTimeout(window.cedhi_mobile_navigation.ensure, 500);
+            return result;
+        };
+    });
+    window.cedhi_mobile_navigation.historyHooked = true;
+}
+if (!window.cedhi_mobile_navigation.observer && document.body) {
+    window.cedhi_mobile_navigation.observer = new MutationObserver(function() {
+        window.setTimeout(window.cedhi_mobile_navigation.ensure, 100);
+    });
+    window.cedhi_mobile_navigation.observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+    });
+}
+if (!window.cedhi_mobile_navigation.interval) {
+    window.cedhi_mobile_navigation.interval = window.setInterval(window.cedhi_mobile_navigation.ensure, 800);
+}
+"""
+	list_view_doctypes = [
+		"Articulo de Inventario",
+		"Alerta de Inventario",
+		"Movimiento de Inventario",
+		"Ubicacion",
+		"Asignacion",
+	]
 	scripts = [
 		{
 			"dt": "Articulo de Inventario",
@@ -1873,9 +2022,35 @@ frappe.ui.form.on('Articulo de Inventario', {
         }
     }
 });
-""",
+""" + mobile_navigation_helper,
 		}
 	]
+
+	for doctype_name in list_view_doctypes:
+		scripts.extend(
+			[
+				{
+					"dt": doctype_name,
+					"view": "Form",
+					"name": f"{doctype_name} - Navegacion movil",
+					"script": mobile_navigation_helper,
+				},
+				{
+					"dt": doctype_name,
+					"view": "List",
+					"name": f"{doctype_name} - Navegacion movil Lista",
+					"script": f"""
+frappe.listview_settings[{json.dumps(doctype_name)}] = frappe.listview_settings[{json.dumps(doctype_name)}] || {{}};
+frappe.listview_settings[{json.dumps(doctype_name)}].onload = function() {{
+    window.cedhi_mobile_navigation && window.cedhi_mobile_navigation.ensure && window.cedhi_mobile_navigation.ensure();
+}};
+frappe.listview_settings[{json.dumps(doctype_name)}].refresh = function() {{
+    window.cedhi_mobile_navigation && window.cedhi_mobile_navigation.ensure && window.cedhi_mobile_navigation.ensure();
+}};
+""" + mobile_navigation_helper,
+				},
+			]
+		)
 
 	results = []
 	for script_data in scripts:
