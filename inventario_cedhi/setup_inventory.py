@@ -16,8 +16,10 @@ def setup_inventory_mvp():
 	results["Gastronomy Fields"] = add_gastronomy_catalog_fields()
 	results["Import Traceability Fields"] = add_import_traceability_fields()
 	results["Module Form Rules"] = configure_module_specific_article_form()
+	results["Article Status Options"] = configure_article_status_options()
 	results["Alert DocType"] = create_alerta_inventario_doctype()
 	results["Movimiento DocType"] = create_movimiento_inventario_doctype()
+	results["Movimiento Traceability"] = configure_movimiento_traceability_fields()
 	results["Role Permissions"] = configure_inventory_role_permissions()
 	results["List Views"] = configure_inventory_list_views()
 	results["Reports"] = create_basic_inventory_reports()
@@ -423,6 +425,42 @@ def configure_module_specific_article_form():
 	frappe.clear_cache(doctype=doctype_name)
 
 	return {"added": added, "configured": sorted(depends_on)}
+
+
+def configure_article_status_options():
+	"""Ensure article status values match the PRD traceability states."""
+	doctype_name = "Articulo de Inventario"
+	if not frappe.db.exists("DocType", doctype_name):
+		return {"updated": False, "reason": "missing doctype"}
+
+	doc = frappe.get_doc("DocType", doctype_name)
+	updated = False
+	for field in doc.fields:
+		if field.fieldname == "estado":
+			field.fieldtype = "Select"
+			field.options = "Activo\nDe baja\nEn reparación"
+			field.default = "Activo"
+			field.reqd = 1
+			field.in_list_view = 1
+			field.in_standard_filter = 1
+			field.in_filter = 1
+			updated = True
+		if field.fieldname == "motivo_cambio_estado":
+			field.mandatory_depends_on = 'eval:doc.estado!="Activo"'
+
+	if updated:
+		doc.save(ignore_permissions=True)
+		frappe.db.set_value(
+			doctype_name,
+			{"estado": "Inactivo"},
+			"estado",
+			"De baja",
+			update_modified=False,
+		)
+		frappe.db.commit()
+		frappe.clear_cache(doctype=doctype_name)
+
+	return {"updated": updated, "options": ["Activo", "De baja", "En reparación"]}
 
 
 def fill_general_location_details_from_ubicacion():
@@ -1086,6 +1124,21 @@ def create_movimiento_inventario_doctype():
 					"in_list_view": 1,
 				},
 				{
+					"fieldname": "estado_actual",
+					"label": "Estado actual",
+					"fieldtype": "Data",
+					"fetch_from": "articulo.estado",
+					"read_only": 1,
+					"in_list_view": 1,
+				},
+				{
+					"fieldname": "stock_actual_articulo",
+					"label": "Stock actual del articulo",
+					"fieldtype": "Float",
+					"fetch_from": "articulo.stock_actual",
+					"read_only": 1,
+				},
+				{
 					"fieldname": "fecha",
 					"label": "Fecha",
 					"fieldtype": "Date",
@@ -1136,6 +1189,61 @@ def create_movimiento_inventario_doctype():
 	frappe.clear_cache(doctype=doctype_name)
 
 	return {"created": True, "doctype": doctype_name}
+
+
+def configure_movimiento_traceability_fields():
+	"""Ensure Kardex rows show the current article state and stock."""
+	doctype_name = "Movimiento de Inventario"
+	if not frappe.db.exists("DocType", doctype_name):
+		return {"updated": False, "reason": "missing doctype"}
+
+	doc = frappe.get_doc("DocType", doctype_name)
+	existing = {df.fieldname for df in doc.fields}
+	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
+	fields = [
+		{
+			"fieldname": "estado_actual",
+			"label": "Estado actual",
+			"fieldtype": "Data",
+			"fetch_from": "articulo.estado",
+			"read_only": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "stock_actual_articulo",
+			"label": "Stock actual del articulo",
+			"fieldtype": "Float",
+			"fetch_from": "articulo.stock_actual",
+			"read_only": 1,
+		},
+	]
+
+	added = []
+	for field in fields:
+		if field["fieldname"] in existing:
+			continue
+		row = doc.append("fields", field)
+		row.idx = next_idx
+		next_idx += 1
+		added.append(field["fieldname"])
+
+	for field in doc.fields:
+		if field.fieldname == "estado_actual":
+			field.label = "Estado actual"
+			field.fetch_from = "articulo.estado"
+			field.read_only = 1
+			field.in_list_view = 1
+			field.in_standard_filter = 1
+		if field.fieldname == "stock_actual_articulo":
+			field.label = "Stock actual del articulo"
+			field.fetch_from = "articulo.stock_actual"
+			field.read_only = 1
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache(doctype=doctype_name)
+	return {"updated": True, "added": added}
 
 
 def configure_inventory_role_permissions():
@@ -1759,7 +1867,7 @@ frappe.ui.form.on('Articulo de Inventario', {
         // RF-C03: Mandatory reason for status change
         if (frm.doc.estado !== 'Activo') {
             frm.set_df_property('motivo_cambio_estado', 'reqd', 1);
-            frappe.msgprint(__('Por favor, especifique el motivo del cambio de estado (Baja/Reparación) para cumplir con la trazabilidad (RF-C03).'));
+            frappe.msgprint(__('Por favor, especifique el motivo del cambio de estado para cumplir con la trazabilidad (RF-C03).'));
         } else {
             frm.set_df_property('motivo_cambio_estado', 'reqd', 0);
         }

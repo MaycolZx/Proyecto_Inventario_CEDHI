@@ -20,9 +20,8 @@ body, .desk-container {
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
-/* Hide Frappe Noise */
-.standard-sidebar, 
-.navbar-search, 
+/* Keep navigation visible; only reduce secondary visual noise. */
+.navbar-search,
 .help-menu, 
 .notifications-icon, 
 .market-place-link,
@@ -46,7 +45,30 @@ body, .desk-container {
     font-weight: 800;
     color: var(--primary) !important;
     font-size: 1.4rem;
-    letter-spacing: -0.5px;
+    letter-spacing: 0;
+}
+
+/* Sidebar usability */
+.standard-sidebar {
+    display: block !important;
+    min-width: 260px !important;
+    max-width: 320px !important;
+    overflow-y: auto !important;
+}
+
+.layout-side-section,
+.desk-sidebar,
+.list-sidebar {
+    display: block !important;
+    overflow-y: auto !important;
+}
+
+.standard-sidebar .sidebar-item-label,
+.desk-sidebar .sidebar-item-label,
+.list-sidebar .sidebar-item-label {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
 }
 
 /* Minimalist Workspace Header */
@@ -65,7 +87,7 @@ body, .desk-container {
     color: var(--primary) !important;
     font-size: 2.5rem !important;
     font-weight: 900 !important;
-    letter-spacing: -1.5px !important;
+    letter-spacing: 0 !important;
     margin-bottom: 0.5rem !important;
 }
 
@@ -150,34 +172,7 @@ body, .desk-container {
     background: white !important;
 }
 
-/* Clean Forms */
-.form-container {
-    background: white !important;
-    border-radius: var(--radius);
-    padding: 2rem !important;
-    box-shadow: var(--shadow-soft);
-}
-
-.form-section-heading {
-    text-transform: none !important;
-    font-weight: 800 !important;
-    font-size: 1.5rem !important;
-    color: var(--primary) !important;
-    margin-bottom: 2rem !important;
-}
-
-.frappe-control input, .frappe-control select, .frappe-control textarea {
-    background-color: #f1f5f9 !important;
-    border: 1px solid transparent !important;
-    padding: 12px !important;
-    transition: all 0.2s !important;
-}
-
-.frappe-control input:focus {
-    background-color: white !important;
-    border-color: var(--accent) !important;
-    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1) !important;
-}
+/* Forms keep Frappe's native control styles so Select values remain visible. */
 
 /* Buttons */
 .btn-primary {
@@ -189,4 +184,30 @@ body, .desk-container {
 
 .btn-primary:hover {
     background-color: #000 !important;
+}
+
+/* Wide tables and reports */
+.list-view-container,
+.report-wrapper,
+.query-report,
+.datatable,
+.dt-scrollable,
+.frappe-list,
+.result,
+.layout-main-section {
+    overflow-x: auto !important;
+}
+
+.datatable,
+.dt-scrollable,
+.dt-scrollable__no-data,
+.list-row-container,
+.report-wrapper .datatable {
+    max-width: 100% !important;
+}
+
+.dt-row,
+.dt-header,
+.list-row {
+    min-width: max-content;
 }
