@@ -962,6 +962,35 @@ order by grupo, nombre_articulo
 				"System Manager",
 			],
 		},
+		{
+			"report_name": "Bandeja de Alertas CEDHI",
+			"ref_doctype": "Alerta de Inventario",
+			"is_standard": "Yes",
+			"report_type": "Script Report",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin Cocina",
+				"Admin General",
+				"Revisor",
+				"Reportante",
+				"System Manager",
+			],
+		},
+		{
+			"report_name": "Kardex de Movimientos",
+			"ref_doctype": "Movimiento de Inventario",
+			"is_standard": "Yes",
+			"report_type": "Script Report",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin Cocina",
+				"Admin General",
+				"Revisor",
+				"System Manager",
+			],
+		},
 	]
 
 	created = []
@@ -2174,6 +2203,8 @@ def create_inventory_workspace():
 		{"label": "Incidencias", "link_to": "Alerta de Inventario", "link_type": "DocType", "type": "Link", "group": "Operaciones"},
 		# Reportes
 		{"label": "Reporte Maestro (Excel)", "link_to": "Reporte Maestro de Inventario", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		{"label": "Bandeja de Alertas", "link_to": "Bandeja de Alertas CEDHI", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		{"label": "Kardex de Movimientos", "link_to": "Kardex de Movimientos", "link_type": "Report", "type": "Link", "group": "Reportes"},
 		{"label": "Stock Crítico", "link_to": "Stock Critico Gastronomia", "link_type": "Report", "type": "Link", "group": "Reportes"},
 		{"label": "Resumen por Área", "link_to": "Resumen Inventario por Modulo", "link_type": "Report", "type": "Link", "group": "Reportes"},
 		# Configuración

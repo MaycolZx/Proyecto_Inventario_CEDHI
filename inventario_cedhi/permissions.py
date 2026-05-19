@@ -75,6 +75,23 @@ def article_report_condition(user=None, table_alias="a"):
 	return f"`{table_alias}`.`modulo` in ({escaped_modules})"
 
 
+def alert_report_condition(user=None, table_alias="a"):
+	"""Return a SQL condition for reports that read Alerta de Inventario directly."""
+	user = user or frappe.session.user
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles and not roles & (FULL_ACCESS_ROLES | set(MODULE_WRITE_ACCESS) | {"Admin General", "Revisor"}):
+		return f"`{table_alias}`.`reportado_por` = {frappe.db.escape(user)}"
+
+	modules = _allowed_modules_for_read(user)
+	if modules is None:
+		return "1=1"
+	if not modules:
+		return "1=0"
+
+	escaped_modules = ", ".join(frappe.db.escape(module) for module in sorted(modules))
+	return f"`{table_alias}`.`modulo` in ({escaped_modules})"
+
+
 def article_query_conditions(user=None):
 	roles = _user_roles(user)
 	if REPORTER_ROLE in roles:

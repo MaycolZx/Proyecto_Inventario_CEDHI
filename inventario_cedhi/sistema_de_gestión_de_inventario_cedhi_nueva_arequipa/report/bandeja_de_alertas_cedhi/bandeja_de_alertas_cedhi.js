@@ -1,5 +1,4 @@
-
-frappe.query_reports["Reporte Maestro de Inventario"] = {
+frappe.query_reports["Bandeja de Alertas CEDHI"] = {
 	"filters": [
 		{
 			"fieldname": "modulo",
@@ -14,30 +13,27 @@ frappe.query_reports["Reporte Maestro de Inventario"] = {
 			"options": "Ubicacion",
 		},
 		{
-			"fieldname": "estado",
+			"fieldname": "tipo_alerta",
+			"label": __("Tipo de alerta"),
+			"fieldtype": "Select",
+			"options": "\nStock bajo\nDañado\nPerdido\nVencido\nAjuste de stock\nOtro",
+		},
+		{
+			"fieldname": "estado_alerta",
 			"label": __("Estado"),
 			"fieldtype": "Select",
-			"options": "\nActivo\nDe baja\nEn reparación",
+			"options": "\nPendiente\nEn revision\nResuelto",
+			"default": "Pendiente",
 		},
 		{
 			"fieldname": "fecha_desde",
-			"label": __("Fecha adquisición desde"),
+			"label": __("Fecha desde"),
 			"fieldtype": "Date",
 		},
 		{
 			"fieldname": "fecha_hasta",
-			"label": __("Fecha adquisición hasta"),
+			"label": __("Fecha hasta"),
 			"fieldtype": "Date",
 		},
-		{
-			"fieldname": "nombre_articulo",
-			"label": __("Nombre del Artículo"),
-			"fieldtype": "Data",
-		},
-		{
-			"fieldname": "solo_stock_critico",
-			"label": __("Solo stock crítico"),
-			"fieldtype": "Check",
-		}
 	]
 };

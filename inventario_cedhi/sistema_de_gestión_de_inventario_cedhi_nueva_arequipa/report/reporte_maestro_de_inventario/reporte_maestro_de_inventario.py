@@ -101,8 +101,14 @@ def get_data(filters):
         conditions += f" and a.ubicacion = {frappe.db.escape(filters.get('ubicacion'))}"
     if filters.get("estado"):
         conditions += f" and a.estado = {frappe.db.escape(filters.get('estado'))}"
+    if filters.get("fecha_desde"):
+        conditions += f" and a.fecha_adquisicion >= {frappe.db.escape(filters.get('fecha_desde'))}"
+    if filters.get("fecha_hasta"):
+        conditions += f" and a.fecha_adquisicion <= {frappe.db.escape(filters.get('fecha_hasta'))}"
     if filters.get("nombre_articulo"):
         conditions += f" and a.nombre_articulo like {frappe.db.escape('%' + filters.get('nombre_articulo') + '%')}"
+    if filters.get("solo_stock_critico"):
+        conditions += " and ifnull(a.stock_critico, 0) > 0 and ifnull(a.stock_actual, 0) < ifnull(a.stock_critico, 0)"
 
     return frappe.db.sql(f"""
         select
