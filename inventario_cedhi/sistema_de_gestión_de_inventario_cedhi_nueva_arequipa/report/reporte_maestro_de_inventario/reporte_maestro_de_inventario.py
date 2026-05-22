@@ -1,6 +1,7 @@
 
 import frappe
 from frappe import _
+from inventario_cedhi.permissions import article_report_condition
 
 def execute(filters=None):
     columns = get_columns()
@@ -93,25 +94,31 @@ def get_columns():
     ]
 
 def get_data(filters):
-    conditions = ""
+    conditions = f" and {article_report_condition(table_alias='a')}"
     if filters.get("modulo"):
-        conditions += f" and modulo = {frappe.db.escape(filters.get('modulo'))}"
+        conditions += f" and a.modulo = {frappe.db.escape(filters.get('modulo'))}"
     if filters.get("ubicacion"):
-        conditions += f" and ubicacion = {frappe.db.escape(filters.get('ubicacion'))}"
+        conditions += f" and a.ubicacion = {frappe.db.escape(filters.get('ubicacion'))}"
     if filters.get("estado"):
-        conditions += f" and estado = {frappe.db.escape(filters.get('estado'))}"
+        conditions += f" and a.estado = {frappe.db.escape(filters.get('estado'))}"
+    if filters.get("fecha_desde"):
+        conditions += f" and a.fecha_adquisicion >= {frappe.db.escape(filters.get('fecha_desde'))}"
+    if filters.get("fecha_hasta"):
+        conditions += f" and a.fecha_adquisicion <= {frappe.db.escape(filters.get('fecha_hasta'))}"
     if filters.get("nombre_articulo"):
-        conditions += f" and nombre_articulo like {frappe.db.escape('%' + filters.get('nombre_articulo') + '%')}"
+        conditions += f" and a.nombre_articulo like {frappe.db.escape('%' + filters.get('nombre_articulo') + '%')}"
+    if filters.get("solo_stock_critico"):
+        conditions += " and ifnull(a.stock_critico, 0) > 0 and ifnull(a.stock_actual, 0) < ifnull(a.stock_critico, 0)"
 
     return frappe.db.sql(f"""
         select
-            name, nombre_articulo, modulo, ubicacion, asignacion, estado,
-            stock_actual, stock_critico, unidad_medida, fecha_adquisicion,
-            marca, modelo, codigo_interno
+            a.name, a.nombre_articulo, a.modulo, a.ubicacion, a.asignacion, a.estado,
+            a.stock_actual, a.stock_critico, a.unidad_medida, a.fecha_adquisicion,
+            a.marca, a.modelo, a.codigo_interno
         from
-            `tabArticulo de Inventario`
+            `tabArticulo de Inventario` a
         where
             1=1 {conditions}
         order by
-            modulo, nombre_articulo
+            a.modulo, a.nombre_articulo
     """, as_dict=1)

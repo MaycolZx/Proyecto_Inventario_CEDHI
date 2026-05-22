@@ -16,8 +16,10 @@ def setup_inventory_mvp():
 	results["Gastronomy Fields"] = add_gastronomy_catalog_fields()
 	results["Import Traceability Fields"] = add_import_traceability_fields()
 	results["Module Form Rules"] = configure_module_specific_article_form()
+	results["Article Status Options"] = configure_article_status_options()
 	results["Alert DocType"] = create_alerta_inventario_doctype()
 	results["Movimiento DocType"] = create_movimiento_inventario_doctype()
+	results["Movimiento Traceability"] = configure_movimiento_traceability_fields()
 	results["Role Permissions"] = configure_inventory_role_permissions()
 	results["List Views"] = configure_inventory_list_views()
 	results["Reports"] = create_basic_inventory_reports()
@@ -423,6 +425,42 @@ def configure_module_specific_article_form():
 	frappe.clear_cache(doctype=doctype_name)
 
 	return {"added": added, "configured": sorted(depends_on)}
+
+
+def configure_article_status_options():
+	"""Ensure article status values match the PRD traceability states."""
+	doctype_name = "Articulo de Inventario"
+	if not frappe.db.exists("DocType", doctype_name):
+		return {"updated": False, "reason": "missing doctype"}
+
+	doc = frappe.get_doc("DocType", doctype_name)
+	updated = False
+	for field in doc.fields:
+		if field.fieldname == "estado":
+			field.fieldtype = "Select"
+			field.options = "Activo\nDe baja\nEn reparación"
+			field.default = "Activo"
+			field.reqd = 1
+			field.in_list_view = 1
+			field.in_standard_filter = 1
+			field.in_filter = 1
+			updated = True
+		if field.fieldname == "motivo_cambio_estado":
+			field.mandatory_depends_on = 'eval:doc.estado!="Activo"'
+
+	if updated:
+		doc.save(ignore_permissions=True)
+		frappe.db.set_value(
+			doctype_name,
+			{"estado": "Inactivo"},
+			"estado",
+			"De baja",
+			update_modified=False,
+		)
+		frappe.db.commit()
+		frappe.clear_cache(doctype=doctype_name)
+
+	return {"updated": updated, "options": ["Activo", "De baja", "En reparación"]}
 
 
 def fill_general_location_details_from_ubicacion():
@@ -924,6 +962,35 @@ order by grupo, nombre_articulo
 				"System Manager",
 			],
 		},
+		{
+			"report_name": "Bandeja de Alertas CEDHI",
+			"ref_doctype": "Alerta de Inventario",
+			"is_standard": "Yes",
+			"report_type": "Script Report",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin Cocina",
+				"Admin General",
+				"Revisor",
+				"Reportante",
+				"System Manager",
+			],
+		},
+		{
+			"report_name": "Kardex de Movimientos",
+			"ref_doctype": "Movimiento de Inventario",
+			"is_standard": "Yes",
+			"report_type": "Script Report",
+			"roles": [
+				"SuperAdministrador Inventario",
+				"Admin TI",
+				"Admin Cocina",
+				"Admin General",
+				"Revisor",
+				"System Manager",
+			],
+		},
 	]
 
 	created = []
@@ -1086,6 +1153,21 @@ def create_movimiento_inventario_doctype():
 					"in_list_view": 1,
 				},
 				{
+					"fieldname": "estado_actual",
+					"label": "Estado actual",
+					"fieldtype": "Data",
+					"fetch_from": "articulo.estado",
+					"read_only": 1,
+					"in_list_view": 1,
+				},
+				{
+					"fieldname": "stock_actual_articulo",
+					"label": "Stock actual del articulo",
+					"fieldtype": "Float",
+					"fetch_from": "articulo.stock_actual",
+					"read_only": 1,
+				},
+				{
 					"fieldname": "fecha",
 					"label": "Fecha",
 					"fieldtype": "Date",
@@ -1136,6 +1218,61 @@ def create_movimiento_inventario_doctype():
 	frappe.clear_cache(doctype=doctype_name)
 
 	return {"created": True, "doctype": doctype_name}
+
+
+def configure_movimiento_traceability_fields():
+	"""Ensure Kardex rows show the current article state and stock."""
+	doctype_name = "Movimiento de Inventario"
+	if not frappe.db.exists("DocType", doctype_name):
+		return {"updated": False, "reason": "missing doctype"}
+
+	doc = frappe.get_doc("DocType", doctype_name)
+	existing = {df.fieldname for df in doc.fields}
+	next_idx = max((cint(df.idx) for df in doc.fields), default=0) + 1
+	fields = [
+		{
+			"fieldname": "estado_actual",
+			"label": "Estado actual",
+			"fieldtype": "Data",
+			"fetch_from": "articulo.estado",
+			"read_only": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+		},
+		{
+			"fieldname": "stock_actual_articulo",
+			"label": "Stock actual del articulo",
+			"fieldtype": "Float",
+			"fetch_from": "articulo.stock_actual",
+			"read_only": 1,
+		},
+	]
+
+	added = []
+	for field in fields:
+		if field["fieldname"] in existing:
+			continue
+		row = doc.append("fields", field)
+		row.idx = next_idx
+		next_idx += 1
+		added.append(field["fieldname"])
+
+	for field in doc.fields:
+		if field.fieldname == "estado_actual":
+			field.label = "Estado actual"
+			field.fetch_from = "articulo.estado"
+			field.read_only = 1
+			field.in_list_view = 1
+			field.in_standard_filter = 1
+		if field.fieldname == "stock_actual_articulo":
+			field.label = "Stock actual del articulo"
+			field.fetch_from = "articulo.stock_actual"
+			field.read_only = 1
+
+	doc.save(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache(doctype=doctype_name)
+	return {"updated": True, "added": added}
 
 
 def configure_inventory_role_permissions():
@@ -1722,6 +1859,155 @@ def create_inventory_charts():
 
 def create_inventory_client_scripts():
 	"""Create Client Scripts to enforce PRD logic and improve UX."""
+	mobile_navigation_helper = """
+window.cedhi_mobile_navigation = window.cedhi_mobile_navigation || {};
+window.cedhi_mobile_navigation.applyStyles = function(button) {
+    const styles = {
+        position: "fixed",
+        left: "12px",
+        bottom: "14px",
+        zIndex: "2147483000",
+        display: "inline-flex",
+        visibility: "visible",
+        opacity: "1",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: "34px",
+        padding: "7px 12px",
+        border: "1px solid #e5e7eb",
+        borderRadius: "999px",
+        background: "#ffffff",
+        boxShadow: "0 8px 18px rgba(15, 23, 42, 0.18)",
+        color: "#111827",
+        fontWeight: "600",
+        pointerEvents: "auto",
+    };
+    Object.entries(styles).forEach(([property, value]) => {
+        button.style.setProperty(property, value, "important");
+    });
+};
+window.cedhi_mobile_navigation.ensure = function() {
+    const mobileQuery = "(max-width: 1024px)";
+    const path = window.location.pathname.toLowerCase();
+    const visualWidth = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    const isMobile = window.matchMedia(mobileQuery).matches
+        || window.innerWidth <= 1024
+        || document.documentElement.clientWidth <= 1024
+        || visualWidth <= 1024;
+    const shouldShow = isMobile
+        && path.startsWith("/app")
+        && !["/app", "/app/home"].includes(path);
+
+    if (!document.getElementById("cedhi-mobile-navigation-style")) {
+        const style = document.createElement("style");
+        style.id = "cedhi-mobile-navigation-style";
+        style.textContent = `
+            .cedhi-mobile-back { display: none; }
+            @media (max-width: 1024px) {
+                .cedhi-mobile-back {
+                    position: fixed;
+                    left: 12px;
+                    bottom: 14px;
+                    z-index: 1050;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-height: 34px;
+                    padding: 7px 12px;
+                    border: 1px solid #e5e7eb;
+                    border-radius: 999px;
+                    background: #ffffff;
+                    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+                    font-weight: 600;
+                }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const existingButton = document.querySelector(".cedhi-mobile-back");
+    if (!shouldShow) {
+        if (existingButton) {
+            existingButton.remove();
+        }
+        return;
+    }
+
+    if (existingButton) {
+        window.cedhi_mobile_navigation.applyStyles(existingButton);
+        return;
+    }
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn btn-default btn-sm cedhi-mobile-back";
+    button.textContent = "Volver";
+    button.setAttribute("aria-label", "Volver a la vista anterior");
+    window.cedhi_mobile_navigation.applyStyles(button);
+    button.addEventListener("click", function() {
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
+        }
+        if (window.frappe && frappe.set_route) {
+            frappe.set_route("Workspaces", "Inventario CEDHI");
+        }
+    });
+
+    document.body.appendChild(button);
+};
+window.cedhi_mobile_navigation.ensure();
+window.setTimeout(window.cedhi_mobile_navigation.ensure, 150);
+window.setTimeout(window.cedhi_mobile_navigation.ensure, 600);
+window.addEventListener("resize", window.cedhi_mobile_navigation.ensure);
+window.addEventListener("focus", window.cedhi_mobile_navigation.ensure);
+window.addEventListener("pageshow", window.cedhi_mobile_navigation.ensure);
+document.addEventListener("visibilitychange", window.cedhi_mobile_navigation.ensure);
+if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", window.cedhi_mobile_navigation.ensure);
+}
+if (window.frappe && frappe.router && typeof frappe.router.on === "function" && !window.cedhi_mobile_navigation.routerHooked) {
+    frappe.router.on("change", function() {
+        window.setTimeout(window.cedhi_mobile_navigation.ensure, 100);
+        window.setTimeout(window.cedhi_mobile_navigation.ensure, 500);
+    });
+    window.cedhi_mobile_navigation.routerHooked = true;
+}
+if (!window.cedhi_mobile_navigation.historyHooked) {
+    ["pushState", "replaceState"].forEach(function(methodName) {
+        const originalMethod = window.history[methodName];
+        if (!originalMethod) {
+            return;
+        }
+        window.history[methodName] = function() {
+            const result = originalMethod.apply(this, arguments);
+            window.setTimeout(window.cedhi_mobile_navigation.ensure, 100);
+            window.setTimeout(window.cedhi_mobile_navigation.ensure, 500);
+            return result;
+        };
+    });
+    window.cedhi_mobile_navigation.historyHooked = true;
+}
+if (!window.cedhi_mobile_navigation.observer && document.body) {
+    window.cedhi_mobile_navigation.observer = new MutationObserver(function() {
+        window.setTimeout(window.cedhi_mobile_navigation.ensure, 100);
+    });
+    window.cedhi_mobile_navigation.observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+    });
+}
+if (!window.cedhi_mobile_navigation.interval) {
+    window.cedhi_mobile_navigation.interval = window.setInterval(window.cedhi_mobile_navigation.ensure, 800);
+}
+"""
+	list_view_doctypes = [
+		"Articulo de Inventario",
+		"Alerta de Inventario",
+		"Movimiento de Inventario",
+		"Ubicacion",
+		"Asignacion",
+	]
 	scripts = [
 		{
 			"dt": "Articulo de Inventario",
@@ -1759,15 +2045,41 @@ frappe.ui.form.on('Articulo de Inventario', {
         // RF-C03: Mandatory reason for status change
         if (frm.doc.estado !== 'Activo') {
             frm.set_df_property('motivo_cambio_estado', 'reqd', 1);
-            frappe.msgprint(__('Por favor, especifique el motivo del cambio de estado (Baja/Reparación) para cumplir con la trazabilidad (RF-C03).'));
+            frappe.msgprint(__('Por favor, especifique el motivo del cambio de estado para cumplir con la trazabilidad (RF-C03).'));
         } else {
             frm.set_df_property('motivo_cambio_estado', 'reqd', 0);
         }
     }
 });
-""",
+""" + mobile_navigation_helper,
 		}
 	]
+
+	for doctype_name in list_view_doctypes:
+		scripts.extend(
+			[
+				{
+					"dt": doctype_name,
+					"view": "Form",
+					"name": f"{doctype_name} - Navegacion movil",
+					"script": mobile_navigation_helper,
+				},
+				{
+					"dt": doctype_name,
+					"view": "List",
+					"name": f"{doctype_name} - Navegacion movil Lista",
+					"script": f"""
+frappe.listview_settings[{json.dumps(doctype_name)}] = frappe.listview_settings[{json.dumps(doctype_name)}] || {{}};
+frappe.listview_settings[{json.dumps(doctype_name)}].onload = function() {{
+    window.cedhi_mobile_navigation && window.cedhi_mobile_navigation.ensure && window.cedhi_mobile_navigation.ensure();
+}};
+frappe.listview_settings[{json.dumps(doctype_name)}].refresh = function() {{
+    window.cedhi_mobile_navigation && window.cedhi_mobile_navigation.ensure && window.cedhi_mobile_navigation.ensure();
+}};
+""" + mobile_navigation_helper,
+				},
+			]
+		)
 
 	results = []
 	for script_data in scripts:
@@ -1891,6 +2203,8 @@ def create_inventory_workspace():
 		{"label": "Incidencias", "link_to": "Alerta de Inventario", "link_type": "DocType", "type": "Link", "group": "Operaciones"},
 		# Reportes
 		{"label": "Reporte Maestro (Excel)", "link_to": "Reporte Maestro de Inventario", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		{"label": "Bandeja de Alertas", "link_to": "Bandeja de Alertas CEDHI", "link_type": "Report", "type": "Link", "group": "Reportes"},
+		{"label": "Kardex de Movimientos", "link_to": "Kardex de Movimientos", "link_type": "Report", "type": "Link", "group": "Reportes"},
 		{"label": "Stock Crítico", "link_to": "Stock Critico Gastronomia", "link_type": "Report", "type": "Link", "group": "Reportes"},
 		{"label": "Resumen por Área", "link_to": "Resumen Inventario por Modulo", "link_type": "Report", "type": "Link", "group": "Reportes"},
 		# Configuración

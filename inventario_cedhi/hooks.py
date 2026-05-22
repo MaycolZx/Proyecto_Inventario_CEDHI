@@ -25,8 +25,8 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-app_include_css = "/assets/inventario_cedhi/css/inventario_cedhi.css"
-# app_include_js = "/assets/inventario_cedhi/js/inventario_cedhi.js"
+app_include_css = "/assets/inventario_cedhi/css/inventario_cedhi_mobile.css?v=20260519_2"
+app_include_js = "/assets/inventario_cedhi/js/mobile_navigation.js?v=20260519_2"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/inventario_cedhi/css/inventario_cedhi.css"
@@ -125,14 +125,14 @@ role_home_page = {
 permission_query_conditions = {
 	"Articulo de Inventario": "inventario_cedhi.permissions.article_query_conditions",
 	"Alerta de Inventario": "inventario_cedhi.permissions.alert_query_conditions",
-	"Movimiento de Inventario": "inventario_cedhi.permissions.article_query_conditions",
+	"Movimiento de Inventario": "inventario_cedhi.permissions.movement_query_conditions",
 	"User": "inventario_cedhi.permissions.user_query_conditions",
 }
 
 has_permission = {
 	"Articulo de Inventario": "inventario_cedhi.permissions.article_has_permission",
 	"Alerta de Inventario": "inventario_cedhi.permissions.alert_has_permission",
-	"Movimiento de Inventario": "inventario_cedhi.permissions.article_has_permission",
+	"Movimiento de Inventario": "inventario_cedhi.permissions.movement_has_permission",
 	"User": "inventario_cedhi.permissions.user_has_permission",
 }
 

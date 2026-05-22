@@ -56,6 +56,42 @@ def _module_condition(doctype, modules):
 	return f"`tab{doctype}`.`modulo` in ({escaped_modules})"
 
 
+def article_report_condition(user=None, table_alias="a"):
+	"""Return a SQL condition for reports that read Articulo de Inventario directly."""
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles:
+		ubicacion = _reporter_location(user)
+		if not ubicacion:
+			return "1=0"
+		return f"`{table_alias}`.`ubicacion` = {frappe.db.escape(ubicacion)}"
+
+	modules = _allowed_modules_for_read(user)
+	if modules is None:
+		return "1=1"
+	if not modules:
+		return "1=0"
+
+	escaped_modules = ", ".join(frappe.db.escape(module) for module in sorted(modules))
+	return f"`{table_alias}`.`modulo` in ({escaped_modules})"
+
+
+def alert_report_condition(user=None, table_alias="a"):
+	"""Return a SQL condition for reports that read Alerta de Inventario directly."""
+	user = user or frappe.session.user
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles and not roles & (FULL_ACCESS_ROLES | set(MODULE_WRITE_ACCESS) | {"Admin General", "Revisor"}):
+		return f"`{table_alias}`.`reportado_por` = {frappe.db.escape(user)}"
+
+	modules = _allowed_modules_for_read(user)
+	if modules is None:
+		return "1=1"
+	if not modules:
+		return "1=0"
+
+	escaped_modules = ", ".join(frappe.db.escape(module) for module in sorted(modules))
+	return f"`{table_alias}`.`modulo` in ({escaped_modules})"
+
+
 def article_query_conditions(user=None):
 	roles = _user_roles(user)
 	if REPORTER_ROLE in roles:
@@ -72,6 +108,38 @@ def alert_query_conditions(user=None):
 	if REPORTER_ROLE in roles and not roles & (FULL_ACCESS_ROLES | set(MODULE_WRITE_ACCESS) | {"Admin General", "Revisor"}):
 		return f"`tabAlerta de Inventario`.`reportado_por` = {frappe.db.escape(user)}"
 	return _module_condition("Alerta de Inventario", _allowed_modules_for_read(user))
+
+
+def movement_query_conditions(user=None):
+	roles = _user_roles(user)
+	if REPORTER_ROLE in roles:
+		ubicacion = _reporter_location(user)
+		if not ubicacion:
+			return "1=0"
+		return f"""
+			exists (
+				select 1
+				from `tabArticulo de Inventario` article
+				where article.name = `tabMovimiento de Inventario`.`articulo`
+				  and article.ubicacion = {frappe.db.escape(ubicacion)}
+			)
+		"""
+
+	modules = _allowed_modules_for_read(user)
+	if modules is None:
+		return None
+	if not modules:
+		return "1=0"
+
+	escaped_modules = ", ".join(frappe.db.escape(module) for module in sorted(modules))
+	return f"""
+		exists (
+			select 1
+			from `tabArticulo de Inventario` article
+			where article.name = `tabMovimiento de Inventario`.`articulo`
+			  and article.modulo in ({escaped_modules})
+		)
+	"""
 
 
 def user_query_conditions(user=None):
@@ -125,6 +193,33 @@ def alert_has_permission(doc, ptype=None, user=None):
 			return bool(doc and doc.reportado_por == user)
 		return False
 	return _has_inventory_module_permission(doc, ptype, user)
+
+
+def movement_has_permission(doc, ptype=None, user=None):
+	ptype = ptype or "read"
+	roles = _user_roles(user)
+
+	if REPORTER_ROLE in roles:
+		if ptype not in {"read", "select", "print", "report"}:
+			return False
+		ubicacion = _reporter_location(user)
+		if not doc or not ubicacion:
+			return bool(ubicacion)
+		article_location = frappe.db.get_value("Articulo de Inventario", doc.articulo, "ubicacion")
+		return article_location == ubicacion
+
+	if ptype in {"read", "select", "print", "email", "report", "export"}:
+		modules = _allowed_modules_for_read(user)
+	else:
+		modules = _allowed_modules_for_write(user)
+
+	if modules is None:
+		return True
+	if not doc:
+		return bool(modules)
+
+	article_module = frappe.db.get_value("Articulo de Inventario", doc.articulo, "modulo")
+	return article_module in modules
 
 
 def user_has_permission(doc, ptype=None, user=None):
