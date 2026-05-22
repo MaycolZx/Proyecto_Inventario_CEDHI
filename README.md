@@ -64,7 +64,7 @@ bench --site inventario.local install-app erpnext
 bench --site inventario.local install-app inventario_cedhi
 ```
 
-## Instalcion por medio de Dockerfile
+## Instalacion por medio de Dockerfile
 
 Construimos y levantamos el entorno:
 
@@ -73,11 +73,19 @@ cd ./docker_setup/
 docker compose up -d --build
 ```
 
-Instalamos la base de datos:
+Instalamos la base de datos, erpnext e inventario_cedhi:
 
 ```
 docker compose exec backend bench new-site inventario.localhost --mariadb-root-password admin --admin-password admin
+docker compose exec backend bench --site inventario.localhost install-app erpnext
 docker compose exec backend bench --site inventario.localhost install-app inventario_cedhi
+```
+
+Para evitar problemas de enrutamiento establecemos:
+
+```
+docker compose exec backend bench use inventario.localhost
+docker compose exec backend bench clear-cache
 ```
 
 Luego en tu navegador ingresa a "http://inventario.localhost:8080"
